@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Wingbot · Human check / 真人验证</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,"PingFang SC",sans-serif;background:#0f0f14;color:#eee}
+.card{max-width:420px;width:90%;background:#1a1a22;border-radius:16px;padding:28px;text-align:center;box-shadow:0 8px 30px #0006}
+h1{font-size:22px;margin:0 0 8px}p{color:#bbb;line-height:1.5;margin:6px 0}.zh{color:#999;font-size:14px}
+#w{display:flex;justify-content:center;margin:20px 0;min-height:70px}#msg{font-weight:600;margin-top:12px}.ok{color:#5ad18a}.err{color:#ff7a7a}
+</style></head><body><div class="card">
+<h1>Confirm you're human</h1><p class="zh">确认你是真人</p>
+<p>Tap the check below. Your Wingbot activation code will then be emailed.</p>
+<p class="zh">点一下下面的验证，验证码随后会发到你的邮箱。</p>
+<div id="w"></div><div id="msg"></div></div>
+<script>
+const API="https://api.wingbot.app",t=new URLSearchParams(location.search).get("t")||"",msg=document.getElementById("msg");
+const say=(c,en,zh)=>{msg.className=c;msg.innerHTML=en+'<br><span class="zh">'+zh+'</span>'};
+async function done(tok){say("","Sending…","发送中…");
+  try{const r=await fetch(API+"/v1/auth/human-check",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({t,turnstile_token:tok})});const d=await r.json().catch(()=>({}));
+    if(r.ok){document.getElementById("w").remove();say("ok","Done! Check your email, then go back to your agent.","完成！请查收邮件，然后回到你的 Agent。")}
+    else if(r.status===410)say("err","This link has expired or was already used. Ask your agent for a new one.","链接已过期或已使用，请让你的 Agent 重新获取。");
+    else if(r.status===429)say("err","Too many tries. Please wait a bit.","尝试太多次，请稍后再试。");
+    else{say("err","Check failed, please try again.","验证失败，请重试。");window.turnstile&&turnstile.reset()}}
+  catch(e){say("err","Network error, please try again.","网络错误，请重试。")}}
+window.onTs=async()=>{if(!/^[0-9a-f]{36}$/.test(t))return say("err","Invalid link. Ask your agent for a new one.","链接无效，请让你的 Agent 重新获取。");
+  const c=await fetch(API+"/v1/auth/human-check/config").then(r=>r.json()).catch(()=>({}));
+  if(!c.enabled||!c.site_key)return say("err","Human check isn't enabled right now.","真人验证暂未开启。");
+  turnstile.render("#w",{sitekey:c.site_key,callback:done,"error-callback":()=>say("err","Check failed, please refresh.","验证出错，请刷新页面。")})};
+</script><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTs&render=explicit" async defer></script>
+</body></html>

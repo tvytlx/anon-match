@@ -129,14 +129,7 @@ async function readBody(req) {
   if (Number(req.headers.get("content-length") || 0) > MAX_BODY) fail(413, "request body too large (max 32KB)");
   const t = await req.text(); if (t.length > MAX_BODY) fail(413, "request body too large (max 32KB)"); return t;
 }
-const ops = {
-  async health() { return { ok: true, service: "anon-match-api", time: new Date().toISOString() }; },
-  async requestCode(env, b, ip = "unknown") {
-    const email = String(b.email || "").trim().toLowerCase();
-    if (email.length > 254 || !/^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(email) || email.includes("..")) fail(400, "invalid email address");
-    const zh = "验证码发送太频繁，请稍后再试";
-    await hit(env, [[`rc:e:${email}:m`, 60, 1, "email", "验证码发送太频繁，请 1 分钟后再试"], [`rc:e:${email}:h`, 3600, 5, "email"], [`rc:e:${email}:d`, 86400, 10, "email"],
-      [`rc:ip:${ip}:m`, 60, 2, "ip"], [`rc:ip:${ip}:d`, 86400, 100, "ip"], ["rc:global:d", 86400, 500, "global", "系统繁忙，今日验证码额度已用完，请明天再试"]]);
+async function sendActivation(env, email) {
     const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
     // attempts persist across resends; only reset once the previous code has expired
     await env.DB.prepare("INSERT INTO auth_codes(email,code_hash,expires_at,attempts) VALUES(?1,?2,?3,0) ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash, attempts=CASE WHEN auth_codes.expires_at<?4 THEN 0 ELSE auth_codes.attempts END, expires_at=excluded.expires_at").bind(email, await sha(code), now() + 15 * 60e3, now()).run();
@@ -155,6 +148,42 @@ const ops = {
     if (mail_error && env.DEV_RETURN_CODE === "true") r.mail_error = mail_error;
     if (env.DEV_RETURN_CODE === "true") r.activation_code = code;
     return r;
+}
+const ops = {
+  async health() { return { ok: true, service: "anon-match-api", time: new Date().toISOString() }; },
+  async requestCode(env, b, ip = "unknown") {
+    const email = String(b.email || "").trim().toLowerCase();
+    if (email.length > 254 || !/^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(email) || email.includes("..")) fail(400, "invalid email address");
+    const zh = "验证码发送太频繁，请稍后再试";
+    await hit(env, [[`rc:e:${email}:m`, 60, 1, "email", "验证码发送太频繁，请 1 分钟后再试"], [`rc:e:${email}:h`, 3600, 5, "email"], [`rc:e:${email}:d`, 86400, 10, "email"],
+      [`rc:ip:${ip}:m`, 60, 2, "ip"], [`rc:ip:${ip}:d`, 86400, 100, "ip"], ...(env.HUMAN_CHECK === "on" ? [] : [["rc:global:d", 86400, 500, "global", "系统繁忙，今日验证码额度已用完，请明天再试"]])]);
+    if (env.HUMAN_CHECK === "on") {
+      // no email yet: one-time challenge; the code is sent only after a Turnstile pass on wingbot.app/verify
+      const id = [...crypto.getRandomValues(new Uint8Array(18))].map((x) => x.toString(16).padStart(2, "0")).join("");
+      await env.DB.prepare("INSERT INTO human_checks(id,email,ip,created_at,expires_at) VALUES(?,?,?,?,?)").bind(id, email, ip, now(), now() + 600e3).run();
+      if (Math.random() < 0.05) await env.DB.prepare("DELETE FROM human_checks WHERE expires_at<?").bind(now() - 86400e3).run();
+      return { needs_human_check: true, email, verify_url: `${env.VERIFY_BASE || "https://wingbot.app/verify"}?t=${id}`, expires_in_sec: 600,
+        note: "Ask the user to open this link and complete the human check; the code will then be emailed." };
+    }
+    return await sendActivation(env, email);
+  },
+  async humanCheck(env, b, ip = "unknown") {
+    await hit(env, [[`hc:ip:${ip}:m`, 60, 10, "ip"], [`hc:ip:${ip}:h`, 3600, 60, "ip"]]);
+    if (env.HUMAN_CHECK !== "on") fail(404, "not found");
+    const t = String(b.t || ""), tok = String(b.turnstile_token || "");
+    if (!/^[0-9a-f]{36}$/.test(t) || !tok || tok.length > 4096) fail(400, "invalid request");
+    const row = await env.DB.prepare("SELECT * FROM human_checks WHERE id=?").bind(t).first();
+    if (!row || row.used_at || row.expires_at < now()) fail(410, "link expired or already used; ask your agent for a new one");
+    if (!env.TURNSTILE_SECRET) fail(503, "human check not configured");
+    const fd = new FormData(); fd.append("secret", env.TURNSTILE_SECRET); fd.append("response", tok); if (ip !== "unknown") fd.append("remoteip", ip);
+    const v = await (await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: fd })).json().catch(() => ({}));
+    if (!v.success) fail(403, "human check failed, please try again");
+    const u = await env.DB.prepare("UPDATE human_checks SET used_at=? WHERE id=? AND used_at IS NULL RETURNING email").bind(now(), t).first();
+    if (!u) fail(410, "link already used");
+    await hit(env, [["rc:global:d", 86400, 500, "global", "系统繁忙，今日验证码额度已用完，请明天再试"]]);
+    const r = await sendActivation(env, u.email);
+    delete r.activation_code;
+    return { ok: true, sent: r.sent, message: "Verified! The activation code has been emailed. Go back to your agent.", message_zh: "验证通过！验证码已发到邮箱，请回到你的 Agent 继续。" };
   },
   async verify(env, b, ip = "unknown") {
     const email = String(b.email || "").trim().toLowerCase();
@@ -431,7 +460,7 @@ const T = "string";
 const instr = () => ({ version: INSTRUCTIONS_VERSION, plugin_min_version: "0.3.0", format: "markdown", instructions: INSTRUCTIONS });
 const TOOLS = [
   ["get_instructions", "CALL FIRST in every Wingbot task. Returns the current versioned agent policy (onboarding, heartbeat, replies, privacy, rate limits, wording). Follow it over any older local skill text", {}, false, () => instr()],
-  ["request_code", "Request an activation code to the user's own email address (human verification only; never shown to anyone)", { email: T }, false, (e, s, a, ip) => ops.requestCode(e, a, ip)],
+  ["request_code", "Request an activation code for the user's own email (verification only; never shown to anyone). If the result has needs_human_check, send verify_url to the user to open and pass the human check; the code is emailed after that.", { email: T }, false, (e, s, a, ip) => ops.requestCode(e, a, ip)],
   ["verify_code", "Verify code; returns session token. Pass it as `token` to every other tool (or Authorization: Bearer).", { email: T, code: T }, false, (e, s, a, ip) => ops.verify(e, a, ip)],
   ["upsert_profile", "Create/update anonymous text profile; all fields optional. preferences = natural-language match preferences (bio/likes/dislikes/preferences max 500 chars each). Optional PRIVATE hard filters (omit any; null clears): want_age_min/want_age_max (int), want_same_city (bool), want_gender (男/女/any; alias of seeking). Applied both ways. age = my own age (int)", { display_name: T, age_range: T, age: "integer", gender: T, want_gender: T, want_age_min: "integer", want_age_max: "integer", want_same_city: "boolean", seeking: T, city: T, occupation: T, bio: T, likes: T, dislikes: T, preferences: T }, true, (e, s, a) => ops.upsertProfile(e, s, a)],
   ["get_my_profile", "Get my profile", {}, true, (e, s) => ops.me(e, s)],
@@ -492,6 +521,8 @@ export default {
       if (p === "/" || p === "/v1/health") return json(await ops.health());
       if (p === "/v1/instructions") return json(instr());
       if (M === "POST" && p === "/v1/auth/request-code") return json(await ops.requestCode(env, await body(), ip));
+      if (M === "GET" && p === "/v1/auth/human-check/config") return json({ enabled: env.HUMAN_CHECK === "on", site_key: env.HUMAN_CHECK === "on" ? env.TURNSTILE_SITE_KEY || null : null });
+      if (M === "POST" && p === "/v1/auth/human-check") return json(await ops.humanCheck(env, await body(), ip));
       if (M === "POST" && p === "/v1/auth/verify") return json(await ops.verify(env, await body(), ip));
       if (M === "POST" && p === "/v1/admin/test-session") { const b = await body(); await adminCheck(req, env); return json(await adminOps.testSession(env, b)); }
       if (M === "POST" && p === "/v1/admin/force-match") { const b = await body(); await adminCheck(req, env); return json(await adminOps.forceMatch(env, b)); }

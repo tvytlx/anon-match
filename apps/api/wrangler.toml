@@ -14,6 +14,9 @@ DEV_RETURN_CODE = "false"
 REVEAL_TIMEOUT_HOURS = "72"
 MAIL_FROM = "noreply@wingbot.app"
 TEST_EMAIL = "qq@mail.grokbot.com"
+# Turnstile gate before activation emails. Turn "on" only after TURNSTILE_SITE_KEY is set and `wrangler secret put TURNSTILE_SECRET` is done.
+HUMAN_CHECK = "off"
+TURNSTILE_SITE_KEY = ""
 
 [[send_email]]
 name = "EMAIL"
