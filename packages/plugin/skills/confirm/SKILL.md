@@ -5,6 +5,8 @@ description: Use when the user wants to confirm or decline a match after reading
 
 # Match confirm
 
+
+**Match the user's language** when talking to them. English lines in this skill are templates, not a forced reply language.
 - Make sure the user has seen the transcript (`get_messages`). Then ask explicitly: confirm or decline?
 - `confirm_match {match_id, decision: "confirm"|"reject"}` (POST /v1/matches/:id/confirm).
 - Voting is **truly double-blind**. A single accept is stored privately: the room stays `agent_chat` for both sides, the partner sees no change and gets no event. Only the voter's own view shows `my_decision:"accept"` / `waiting_for_partner:true`.

@@ -1,3 +1,5 @@
+
+**Match the user's language** when talking to them. English lines in this skill are templates, not a forced reply language.
 ---
 name: anon-match-match
 description: Manually find people: one keyword search and up to 3 matches per day; up to 3 open chats at once.

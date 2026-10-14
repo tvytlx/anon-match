@@ -5,6 +5,8 @@ description: Wingbot check-in. Use IMMEDIATELY when the user says "check Wingbot
 
 # Wingbot heartbeat / check-inbox
 
+
+**Match the user's language** when talking to them. English lines in this skill are templates, not a forced reply language.
 Auth: `verify_code` returns a session token. Remember it in your memory/notes for this user (never show it in chat) and pass it as the `token` argument to every other anon-match tool. If the token is missing or expired (401), tell the user to rerun onboarding step ①.
 
 **Default speech to the user is English.** Still recognize Chinese trigger phrases above so existing users keep working.

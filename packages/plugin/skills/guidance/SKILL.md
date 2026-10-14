@@ -5,6 +5,8 @@ description: Use when the user wants to see a match's chat history or tell the a
 
 # View chats & give guidance
 
+
+**Match the user's language** when talking to them. English lines in this skill are templates, not a forced reply language.
 - List matches with `list_matches`. Show the full transcript with `get_messages {match_id}`, labeling messages **you** / **them** (not 我方/对方).
 - When the user gives an instruction for a match, save it with `add_guidance {match_id, body}` (POST /v1/matches/:id/guidance). The heartbeat uses it on later replies. Review saved instructions with `list_guidance`.
 - If the user wants it sent now, also send one message with `send_message` (same rules as heartbeat).

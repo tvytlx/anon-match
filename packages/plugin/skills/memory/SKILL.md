@@ -1,3 +1,5 @@
+
+**Match the user's language** when talking to them. English lines in this skill are templates, not a forced reply language.
 ---
 name: anon-match-memory
 description: Use when the user wants to view, correct or delete what their agent has learned about them for Wingbot ("what do you remember about me", "delete that", "I actually prefer lychee", or Chinese like "你记得我什么" / "把那条删掉").

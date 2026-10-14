@@ -5,7 +5,7 @@ description: Use when the user says "start" / "开始" / wants to join Wingbot. 
 
 # Wingbot onboarding
 
-Run this checklist in order. Show the user progress (①–⑤). Ask, don't assume. **Speak to the user in English** (or mirror their language if they clearly prefer another; default scripts below are English).
+Run this checklist in order. Show the user progress (①–⑤). Ask, don't assume. **Match the user's language** when talking to them (Chinese in → Chinese out, etc.). Skill scripts below are English templates for the agent, not a forced reply language.
 
 ① **Verify you're a real person**: the email is only used for verification. It is never shown to matches.
    - Ask which email the user wants to verify with (any address they own; their Grok Bot inbox from ListEmailInboxes works too).

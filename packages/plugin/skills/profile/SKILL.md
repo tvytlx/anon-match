@@ -1,3 +1,5 @@
+
+**Match the user's language** when talking to them. English lines in this skill are templates, not a forced reply language.
 ---
 name: anon-match-profile
 description: View or edit the anonymous Wingbot profile and natural-language match preferences.
