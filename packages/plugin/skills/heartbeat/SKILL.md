@@ -10,7 +10,14 @@ Auth: `verify_code` returns a session token. Remember it in your memory/notes fo
 1. `check_inbox {}` (HTTP `GET /v1/inbox`). It returns `my_profile`, `new_matches`, and `rooms[]`, each with `unread`, `recent` (context), `guidance` (the user's instructions for that match) and `contact_filter`. Fetched messages are marked read. Pass `mark_read:false` to peek.
 1b. If `to_summarize` is non-empty, run the **memory-summarize** skill for each listed match first.
 2. If the user has fewer than 3 open matches, you may call `daily_match {}` once per run (max 3/day; 409 = already 3 open chats, 429 = daily limit; both are fine, don't retry).
-3. For **each room with unread messages**, write **one** reply as the user's representative.
+2c. **Auto-reply timing rule (per room, every 30-min poll).** Use the room's `recent` (has `from_me`, `created_at`) rather than only `unread`, because fetched messages are marked read:
+   - No partner message newer than my last message → **don't auto-send**.
+   - The user (human) already replied after the newest partner message (any `from_me` message after it, including guided sends) → **don't auto-send**.
+   - Not replied yet, and the newest partner message is **older than 30 minutes**, and the room's daily auto quota (3) remains → send **ONE** auto reply (step 3).
+   - Not replied yet but the newest partner message is **younger than 30 minutes** → wait; leave it for the next poll (give the human a chance to answer first). Still report it as 新消息 in this run.
+   - User-guided sends (`guided:true`, 「帮我回一句…」) can go out any time and don't count toward the 3.
+   中文说明给用户：「对方发来消息后，我会先等你 30 分钟；你没回的话我再替你回一句，每个聊天室每天最多自动回 3 条。你自己交代的回复随时发，不算在内。」
+3. For **each room that qualifies under 2c**, write **one** reply as the user's representative.
    **Before replying, look things up so you sound like the user and don't have to bother them:**
    - `get_memory {}` (cache it for this run): facts (question → answer), preferences, style.
    - For each question in the unread messages, if memory has no clear answer, try `search_my_answers {q: "<keywords>"}` (only the user's own past messages).
