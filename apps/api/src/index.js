@@ -88,6 +88,7 @@ async function matchView(env, m, me) {
   const out = { match_id: m.id, state: m.state, partner: p, created_at: m.created_at, confirm_deadline: m.reveal_deadline };
   out.unread = (await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE match_id=? AND sender_id<>? AND read_at IS NULL").bind(m.id, me).first()).n;
   out.contact_filter = m.state !== "confirmed";
+  if ((await env.DB.prepare("SELECT is_test FROM users WHERE id=?").bind(other).first())?.is_test) { out.partner_is_official_test = true; out.notice = "这是 Wingbot 官方测试账号（非真实用户） / Official Wingbot test account, not a real person"; }
   return out;
 }
 
@@ -163,7 +164,7 @@ const ops = {
     if (!q) fail(400, "q required");
     await bump(env, s.user_id, "search", 1);
     const like = `%${q}%`;
-    const r = await env.DB.prepare(`SELECT ${PUBLIC_FIELDS} FROM profiles WHERE user_id<>? AND (display_name LIKE ? OR city LIKE ? OR bio LIKE ? OR likes LIKE ? OR occupation LIKE ?) ORDER BY updated_at DESC LIMIT 10`).bind(s.user_id, like, like, like, like, like).all();
+    const r = await env.DB.prepare(`SELECT ${PUBLIC_FIELDS} FROM profiles p WHERE user_id<>? AND p.user_id NOT IN (SELECT id FROM users WHERE is_test=1) AND (display_name LIKE ? OR city LIKE ? OR bio LIKE ? OR likes LIKE ? OR occupation LIKE ?) ORDER BY updated_at DESC LIMIT 10`).bind(s.user_id, like, like, like, like, like).all();
     return { q, results: r.results, remaining_today: 0 };
   },
   async daily(env, s, b) {
@@ -171,7 +172,7 @@ const ops = {
     if (!me) fail(400, "create your profile first");
     const target = b && b.user_id;
     await bump(env, s.user_id, "match", 1);
-    let sql = `SELECT p.* FROM profiles p WHERE p.user_id<>?1
+    let sql = `SELECT p.* FROM profiles p WHERE p.user_id<>?1 AND p.user_id NOT IN (SELECT id FROM users WHERE is_test=1)
       AND NOT EXISTS (SELECT 1 FROM matches m WHERE (m.user_a=?1 AND m.user_b=p.user_id) OR (m.user_b=?1 AND m.user_a=p.user_id))
       AND NOT EXISTS (SELECT 1 FROM matches m WHERE (m.user_a=p.user_id OR m.user_b=p.user_id) AND m.state IN ${OPEN})`;
     const args = [s.user_id];
@@ -319,6 +320,41 @@ const ops = {
   },
 };
 
+
+// ---- admin (ADMIN_SECRET) : test account + force match ----
+async function adminCheck(req, env, given) {
+  await hit(env, [[`adm:${ipOf(req)}:m`, 60, 10, "ip"], [`adm:${ipOf(req)}:d`, 86400, 100, "ip"]]);
+  const g = given || req.headers.get("x-admin-secret") || "";
+  if (!env.ADMIN_SECRET || (await sha(g)) !== (await sha(env.ADMIN_SECRET))) {
+    await hit(env, [[`adm:bad:${ipOf(req)}`, 3600, 3, "ip", "管理员验证失败次数过多，请 1 小时后再试"]]); fail(403, "forbidden");
+  }
+}
+const TEST_NAME = "Wingbot 官方测试号";
+const adminOps = {
+  async testSession(env, b) { // ensure test user (is_test=1) + labeled profile, return a session for it
+    const email = String(b.test_email || env.TEST_EMAIL || "").trim().toLowerCase(); if (!email) fail(400, "test_email required");
+    await env.DB.prepare("INSERT INTO users(id,email,status,is_test,created_at) VALUES(?,?,'active',1,?) ON CONFLICT(email) DO UPDATE SET is_test=1, status='active'").bind(uid("u"), email, now()).run();
+    const u = await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
+    await env.DB.prepare("INSERT INTO profiles(user_id,display_name,bio,state,updated_at) VALUES(?,?,?,'draft',?) ON CONFLICT(user_id) DO NOTHING").bind(u.id, TEST_NAME, "这是 Wingbot 官方测试账号，用于产品测试，不是真实用户。", now()).run();
+    await env.DB.prepare("UPDATE profiles SET display_name=CASE WHEN display_name LIKE '%官方测试%' THEN display_name ELSE ? || ' · ' || COALESCE(display_name,'') END WHERE user_id=?").bind(TEST_NAME, u.id).run();
+    const token = crypto.randomUUID() + crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").bind(await sha(token), u.id, now() + 7 * 864e5).run();
+    return { test_user_id: u.id, email, token, expires_in_days: 7, note: "Use this token with normal tools to act as the test account." };
+  },
+  async forceMatch(env, b) {
+    const ue = String(b.user_email || "").trim().toLowerCase(), te = String(b.test_email || env.TEST_EMAIL || "").trim().toLowerCase();
+    const u = await env.DB.prepare("SELECT id FROM users WHERE email=? AND status='active'").bind(ue).first(); if (!u) fail(404, "real user not found (must verify first)");
+    const t = await env.DB.prepare("SELECT id FROM users WHERE email=? AND is_test=1").bind(te).first(); if (!t) fail(404, "test account not set up (call admin_test_session first)");
+    if (!(await env.DB.prepare("SELECT 1 FROM profiles WHERE user_id=?").bind(u.id).first())) fail(400, "real user has no profile yet");
+    const ex = await env.DB.prepare(`SELECT id FROM matches WHERE ((user_a=?1 AND user_b=?2) OR (user_a=?2 AND user_b=?1)) AND state IN ${OPEN}`).bind(u.id, t.id).first();
+    if (ex) return { match_id: ex.id, existing: true };
+    const id = uid("m"), n = now();
+    await env.DB.prepare("INSERT INTO matches(id,user_a,user_b,state,created_at,updated_at,reveal_deadline) VALUES(?,?,?,'matched',?,?,?)").bind(id, u.id, t.id, n, n, n + Number(env.REVEAL_TIMEOUT_HOURS) * 3600e3).run();
+    await env.DB.prepare("UPDATE profiles SET state='matched' WHERE user_id IN (?,?)").bind(u.id, t.id).run();
+    return { match_id: id, existing: false, user_id: u.id, test_user_id: t.id };
+  },
+};
+
 // ---- thin MCP adapter (Streamable HTTP, JSON responses) ----
 const T = "string";
 const TOOLS = [
@@ -341,6 +377,8 @@ const TOOLS = [
   ["search_my_answers", "Keyword search over messages I (the user's side) sent in past chats; optional match_id. Never returns the partner's messages", { q: T, match_id: T }, true, (e, s, a) => ops.historyAnswers(e, s, a)],
   ["mark_summarized", "Mark an ended match as summarized into memory", { match_id: T }, true, (e, s, a) => ops.markSummarized(e, s, a.match_id)],
   ["confirm_match", "Vote confirm|reject. Both confirm → confirmed (contact filter lifted). Any reject/72h timeout → cancelled", { match_id: T, decision: T }, true, (e, s, a) => ops.confirm(e, s, a.match_id, a)],
+  ["admin_test_session", "ADMIN ONLY. Ensure the official test account exists (labeled, excluded from matching) and get a session token for it", { admin_secret: T, test_email: T }, false, async (e, s, a, ip, req) => { await adminCheck(req, e, a.admin_secret); return adminOps.testSession(e, a); }],
+  ["admin_force_match", "ADMIN ONLY. Force-match a verified real user (by email) with the official test account", { admin_secret: T, user_email: T, test_email: T }, false, async (e, s, a, ip, req) => { await adminCheck(req, e, a.admin_secret); return adminOps.forceMatch(e, a); }],
 ];
 async function mcp(req, env) {
   if (req.method !== "POST") return json({ error: "POST JSON-RPC to /mcp" }, 405);
@@ -358,7 +396,7 @@ async function mcp(req, env) {
       const args = m.params.arguments || {};
       const s = t[3] ? await authLimited(req, env, args.token) : null;
       if (s) await limitUser(env, s, t[0], args);
-      const r = await t[4](env, s, args, ipOf(req));
+      const r = await t[4](env, s, args, ipOf(req), req);
       return reply({ content: [{ type: "text", text: JSON.stringify(r) }] });
     } catch (e) {
       if (e instanceof RateErr) return reply({ isError: true, content: [{ type: "text", text: JSON.stringify(rateBody(e)) }], _meta: { error: "rate_limited", retry_after_sec: e.retry } });
@@ -380,6 +418,8 @@ export default {
       if (p === "/" || p === "/v1/health") return json(await ops.health());
       if (M === "POST" && p === "/v1/auth/request-code") return json(await ops.requestCode(env, await body(), ip));
       if (M === "POST" && p === "/v1/auth/verify") return json(await ops.verify(env, await body(), ip));
+      if (M === "POST" && p === "/v1/admin/test-session") { const b = await body(); await adminCheck(req, env); return json(await adminOps.testSession(env, b)); }
+      if (M === "POST" && p === "/v1/admin/force-match") { const b = await body(); await adminCheck(req, env); return json(await adminOps.forceMatch(env, b)); }
       const s = await authLimited(req, env);
       const mmx = p.match(/^\/v1\/matches\/([\w-]+)\/(\w+)$/);
       const tool = M === "GET" && p === "/v1/inbox" ? "check_inbox" : M === "POST" && p === "/v1/profile" ? "upsert_profile" : p === "/v1/memory" && M === "POST" ? "upsert_memory"

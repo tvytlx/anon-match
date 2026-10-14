@@ -14,6 +14,7 @@ EMAIL_DOMAIN = "mail.grokbot.com"
 DEV_RETURN_CODE = "false"
 REVEAL_TIMEOUT_HOURS = "72"
 MAIL_FROM = "noreply@wingbot.app"
+TEST_EMAIL = "qq@mail.grokbot.com"
 
 [[send_email]]
 name = "EMAIL"
