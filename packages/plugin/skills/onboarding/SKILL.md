@@ -8,7 +8,7 @@ description: Use when the user says "start" / "开始" / wants to join Wingbot. 
 **Always call `get_instructions` first** (no token needed) and follow the returned policy — it is the source of truth and is updated server-side. Match the user's language.
 
 1. `get_instructions` → follow the **onboarding** section.
-2. ① Verify: `request_code {email}` → read/ask code → `verify_code {email, code}`; keep the token private.
+2. ① Verify: `request_code {email}` → read/ask code → `verify_code {email, code}`; keep the token private. If `is_new_user` is `false`, welcome them back using the returned `profile`/`state` and skip ②–③ (don't overwrite their profile; `upsert_profile` only changed fields).
 3. ② Profile: collect optional fields, read back, `upsert_profile` after the user confirms.
 4. ③ Who they'd like to meet: must-haves (optional) + nice-to-haves, recap, `upsert_profile`.
 5. ④ Create the 30-min check-in routine (~09:00–22:30 user time).

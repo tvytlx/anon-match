@@ -6,6 +6,8 @@ const uid = (p) => p + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
 const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type", "access-control-allow-methods": "GET,POST,DELETE,OPTIONS" } });
 class HttpErr extends Error { constructor(s, m) { super(m); this.status = s; } }
 const fail = (s, m) => { throw new HttpErr(s, m); };
+// Canonical auth email: lowercase, strip "+tag" from local part so aliases map to one account.
+export function normEmail(e) { const x = String(e || "").trim().toLowerCase(); const i = x.lastIndexOf("@"); if (i < 1) return x; return x.slice(0, i).split("+")[0] + x.slice(i); }
 async function sha(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join(""); }
 const LIMITS = { display_name: 40, age_range: 20, gender: 20, seeking: 20, city: 60, occupation: 60, bio: 500, likes: 500, dislikes: 500, preferences: 500 };
 // Contact-info filter: active only before a match is confirmed.
@@ -129,10 +131,10 @@ async function readBody(req) {
   if (Number(req.headers.get("content-length") || 0) > MAX_BODY) fail(413, "request body too large (max 32KB)");
   const t = await req.text(); if (t.length > MAX_BODY) fail(413, "request body too large (max 32KB)"); return t;
 }
-const ops = {
+export const ops = {
   async health() { return { ok: true, service: "anon-match-api", time: new Date().toISOString() }; },
   async requestCode(env, b, ip = "unknown") {
-    const email = String(b.email || "").trim().toLowerCase();
+    const email = normEmail(b.email);
     if (email.length > 254 || !/^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(email) || email.includes("..")) fail(400, "invalid email address");
     const zh = "验证码发送太频繁，请稍后再试";
     await hit(env, [[`rc:e:${email}:m`, 60, 1, "email", "验证码发送太频繁，请 1 分钟后再试"], [`rc:e:${email}:h`, 3600, 5, "email"], [`rc:e:${email}:d`, 86400, 10, "email"],
@@ -157,7 +159,7 @@ const ops = {
     return r;
   },
   async verify(env, b, ip = "unknown") {
-    const email = String(b.email || "").trim().toLowerCase();
+    const email = normEmail(b.email);
     await hit(env, [[`vf:ip:${ip}:m`, 60, 10, "ip"], [`vf:ip:${ip}:h`, 3600, 50, "ip"]]);
     const lock = await peek(env, `vf:fail:${email}`, 3600);
     if (lock.n >= 10) throw new RateErr(lock.left, "email", `验证码错误次数过多，请 ${dur(lock.left)[0]}后再试`);
@@ -166,21 +168,33 @@ const ops = {
     if (row.attempts >= 5) fail(429, "too many attempts, request a new code");
     if (row.code_hash !== await sha(String(b.code || ""))) { await env.DB.prepare("UPDATE auth_codes SET attempts=attempts+1 WHERE email=?").bind(email).run(); await hit(env, [[`vf:fail:${email}`, 3600, 1e9, "email"]]); fail(400, "wrong code"); }
     await env.DB.prepare("DELETE FROM auth_codes WHERE email=?").bind(email).run();
-    await env.DB.prepare("INSERT INTO users(id,email,status,created_at) VALUES(?,?,'active',?) ON CONFLICT(email) DO UPDATE SET status='active'").bind(uid("u"), email, now()).run();
-    const u = await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
+    const existing = await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
+    if (existing) await env.DB.prepare("UPDATE users SET status='active' WHERE id=?").bind(existing.id).run();
+    else await env.DB.prepare("INSERT INTO users(id,email,status,created_at) VALUES(?,?,'active',?) ON CONFLICT(email) DO UPDATE SET status='active'").bind(uid("u"), email, now()).run();
+    const u = existing || await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
     const token = crypto.randomUUID() + crypto.randomUUID();
     await env.DB.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").bind(await sha(token), u.id, now() + 30 * 864e5).run();
-    return { token, user_id: u.id, expires_in_days: 30 };
+    const out = { token, user_id: u.id, expires_in_days: 30, is_new_user: !existing };
+    if (existing) {
+      const p = await env.DB.prepare(`SELECT ${OWN_FIELDS}, state FROM profiles WHERE user_id=?`).bind(u.id).first();
+      out.profile = p || null; out.state = p ? p.state : null;
+      out.note = p ? "Returning user: welcome them back; do NOT re-run onboarding or overwrite the profile. Only update fields they ask to change." : "Returning user without a profile yet: continue onboarding.";
+    }
+    return out;
   },
   async upsertProfile(env, s, b) {
     const v = {};
     for (const [k, max] of Object.entries(LIMITS)) {
+      if (!Object.prototype.hasOwnProperty.call(b, k)) continue; // absent → keep stored value
       const x = b[k] == null ? "" : Array.isArray(b[k]) ? b[k].join(", ") : String(b[k]);
       if (x.length > max) fail(400, `${k} too long: ${x.length} chars, max ${max} / ${k} 超出字数上限（${x.length}/${max} 字），请精简后再保存`);
       if (BANNED.test(x)) fail(400, `${k} contains disallowed content (text-only, non-sexual social profiles)`);
       if (profaneHit(x)) fail(400, PROFANE_MSG(k));
       v[k] = x.trim();
     }
+    // absent text fields keep stored value (new profiles default to "")
+    const curT = (await env.DB.prepare("SELECT display_name, age_range, gender, seeking, city, occupation, bio, likes, dislikes, preferences FROM profiles WHERE user_id=?").bind(s.user_id).first()) || {};
+    for (const k of Object.keys(LIMITS)) if (!(k in v)) v[k] = curT[k] ?? "";
     if (!v.display_name) v.display_name = "匿名" + s.user_id.slice(-4);
     for (const k of ["bio", "display_name", "occupation", "likes", "dislikes", "preferences"]) { const h = contactHit(v[k]); if (h) fail(400, `${k} must not contain contact info (${h})`); }
     // hard filters: a key that is absent keeps its stored value; null/"" clears it
@@ -413,7 +427,7 @@ const adminOps = {
     return { test_user_id: u.id, email, token, expires_in_days: 7, note: "Use this token with normal tools to act as the test account." };
   },
   async forceMatch(env, b) {
-    const ue = String(b.user_email || "").trim().toLowerCase(), te = String(b.test_email || env.TEST_EMAIL || "").trim().toLowerCase();
+    const ue = normEmail(b.user_email), te = String(b.test_email || env.TEST_EMAIL || "").trim().toLowerCase();
     const u = await env.DB.prepare("SELECT id FROM users WHERE email=? AND status='active'").bind(ue).first(); if (!u) fail(404, "real user not found (must verify first)");
     const t = await env.DB.prepare("SELECT id FROM users WHERE email=? AND is_test=1").bind(te).first(); if (!t) fail(404, "test account not set up (call admin_test_session first)");
     if (!(await env.DB.prepare("SELECT 1 FROM profiles WHERE user_id=?").bind(u.id).first())) fail(400, "real user has no profile yet");
