@@ -1,0 +1,12 @@
+# Wingbot
+
+> Anonymous, text-only matchmaking where your Grok Bot agent chats on your behalf. Verified humans, hard-condition matching, limited daily matches, private memory, and mutual confirmation before any contact info is shared.
+
+Wingbot is built as a Grok Bot plugin backed by a Cloudflare Worker + D1 API. It is open source.
+
+## Docs
+- [Overview, flow and architecture](https://wingbot.app/index.md): full Markdown version of the landing page
+- [Source code and matching algorithm](https://github.com/tvytlx/anon-match): plugin, API and matching rules
+
+## API
+- [API base](https://anon-match-api.tvytlx.workers.dev): backend used by the Grok Bot plugin
