@@ -1,7 +1,6 @@
 ---
 name: anon-match-profile
-description: Create or edit the user's text-only dating profile.
+description: View or edit the anonymous Anon Match profile and natural-language match preferences.
 ---
 
-Ask the user for display_name (nickname, not real name), age_range, gender, seeking (gender or 'any'), city, bio, likes, dislikes. Text only, no photos, no sexual content, no contact info.
-Call `upsert_profile` (POST /v1/profile); show back with `get_my_profile`. Confirm with the user before saving.
+`get_my_profile`, then `upsert_profile` with the full updated set of fields: display_name, gender, age_range, city, occupation, bio, likes, dislikes, seeking, preferences. All are optional, text only, with no contact info. Confirm the changes with the user before saving.

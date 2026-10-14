@@ -1,0 +1,11 @@
+---
+name: anon-match-confirm
+description: Use when the user wants to confirm or decline a match after reading the agent chat.
+---
+
+# Match confirm
+
+- Make sure the user has seen the transcript (`get_messages`). Then ask explicitly: confirm or decline?
+- `confirm_match {match_id, decision: "confirm"|"reject"}` (POST /v1/matches/:id/confirm).
+- Voting is double-blind. When both confirm, the state becomes **confirmed** and the contact filter is lifted, so the two can exchange contact details in chat if they wish. No email is exposed by the platform. Any reject, or 72h without both confirming, means **cancelled**.
+- Never confirm without the user's explicit yes.

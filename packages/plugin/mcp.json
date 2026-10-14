@@ -1,1 +1,9 @@
-{ "mcpServers": { "anon-match": { "url": "https://anon-match-api.<your-subdomain>.workers.dev/mcp", "headers": { "Authorization": "Bearer ${ANON_MATCH_TOKEN}" } } } }
+{
+  "mcpServers": {
+    "anon-match": {
+      "type": "http",
+      "url": "https://anon-match-api.tvytlx.workers.dev/mcp",
+      "placement": "server"
+    }
+  }
+}

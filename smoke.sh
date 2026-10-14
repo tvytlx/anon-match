@@ -6,13 +6,15 @@ login(){ local e=$1; c=$(j POST /v1/auth/request-code "{\"email\":\"$e\"}" | sed
 echo "== health"; j GET /v1/health
 echo "== reject non-grokbot"; j POST /v1/auth/request-code '{"email":"a@gmail.com"}'
 TA=$(login "alice$S@mail.grokbot.com"); TB=$(login "bob$S@mail.grokbot.com")
-echo "== profiles"; T=$TA j POST /v1/profile '{"display_name":"A'$S'","age_range":"25-30","gender":"female","seeking":"male","city":"Shanghai","bio":"爱读书爬山","likes":"hiking","dislikes":"smoking"}'
-T=$TB j POST /v1/profile '{"display_name":"B'$S'","age_range":"28-32","gender":"male","seeking":"female","city":"Shanghai","bio":"程序员 喜欢爬山","likes":"hiking","dislikes":""}'
+echo "== profiles"; T=$TA j POST /v1/profile '{"display_name":"A'$S'","age_range":"25-30","gender":"female","seeking":"male","city":"Shanghai","occupation":"设计师","bio":"爱读书爬山","likes":"hiking","dislikes":"smoking","preferences":"希望对方喜欢户外、爬山，不抽烟"}'
+BP=$(T=$TB j POST /v1/profile '{"display_name":"B'$S'","age_range":"28-32","gender":"male","seeking":"female","city":"Shanghai","bio":"程序员 喜欢爬山","likes":"hiking","dislikes":""}'); echo "$BP"; BID=$(echo "$BP" | sed -E 's/^\{"user_id":"([^"]+)".*/\1/')
 echo "== search (B)"; T=$TB j POST /v1/search '{"q":"爬山"}'
 echo "== search again (should 429)"; T=$TB j POST /v1/search '{"q":"x"}'
-echo "== daily match (A)"; R=$(T=$TA j POST /v1/match/daily '{}'); echo "$R"; M=$(echo "$R" | sed -E 's/.*"match_id":"([^"]+)".*/\1/')
+echo "== daily match (A)"; R=$(T=$TA j POST /v1/match/daily "{\"user_id\":\"$BID\"}"); echo "$R"; M=$(echo "$R" | sed -E 's/.*"match_id":"([^"]+)".*/\1/')
 echo "== relay"; T=$TA j POST /v1/matches/$M/messages '{"body":"你好，周末喜欢去哪爬山？"}'; T=$TB j POST /v1/matches/$M/messages '{"body":"佘山！"}'
-T=$TB j POST /v1/matches/$M/messages '{"body":"my mail x@y.com"}'
+echo "== contact filter (all should be blocked)"; for b in "my mail x@y.com" "加我vx abc12345" "电话 138 1234 5678" "qq 12345678" "tg @abcdef" "看 www.foo.com"; do T=$TB j POST /v1/matches/$M/messages "{\"body\":\"$b\"}"; done
+echo "== guidance + inbox (A)"; T=$TA j POST /v1/matches/$M/guidance '{"body":"问问他喜欢什么音乐"}'; T=$TA j GET /v1/inbox; echo "-- inbox again (unread should be 0)"; T=$TA j GET /v1/inbox
 T=$TB j GET /v1/matches/$M/messages
-echo "== reveal"; T=$TA j POST /v1/matches/$M/reveal '{"decision":"accept"}'; T=$TB j POST /v1/matches/$M/reveal '{"decision":"accept"}'
+echo "== confirm"; T=$TA j POST /v1/matches/$M/confirm '{"decision":"confirm"}'; T=$TB j POST /v1/matches/$M/confirm '{"decision":"confirm"}'
+echo "== after confirm contact allowed"; T=$TB j POST /v1/matches/$M/messages '{"body":"我的微信 abc12345"}'
 echo "== mcp tools/list"; curl -s -X POST $B/mcp -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -c 200; echo
