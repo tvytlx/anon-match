@@ -72,8 +72,19 @@ const ops = {
     const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
     await env.DB.prepare("INSERT INTO users(id,email,created_at) VALUES(?,?,?) ON CONFLICT(email) DO NOTHING").bind(uid("u"), email, now()).run();
     await env.DB.prepare("INSERT INTO auth_codes(email,code_hash,expires_at,attempts) VALUES(?,?,?,0) ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0").bind(email, await sha(code), now() + 15 * 60e3).run();
-    console.log(`[activation] ${email} code=${code}`); // MVP: no mail provider wired yet
-    const r = { sent: true, email, expires_in_sec: 900, note: "Activation code is delivered to the Grok Bot inbox (MVP: logged / returned in dev mode)." };
+    let sent = false, mail_error;
+    if (env.EMAIL && env.MAIL_FROM) {
+      try {
+        await env.EMAIL.send({ to: email, from: { email: env.MAIL_FROM, name: "Anon Match" }, subject: `Anon Match activation code: ${code}`,
+          text: `Your Anon Match activation code is ${code}\nIt expires in 15 minutes. If you didn't request this, ignore this email.`,
+          html: `<p>Your Anon Match activation code is <b style="font-size:20px">${code}</b></p><p>It expires in 15 minutes. If you didn't request this, ignore this email.</p>` });
+        sent = true;
+      } catch (e) { mail_error = `${e.code || ""} ${e.message}`.trim(); console.error("[mail] send failed", mail_error); }
+    }
+    if (env.DEV_RETURN_CODE === "true") console.log(`[activation] ${email} code=${code}`);
+    if (!sent && env.DEV_RETURN_CODE !== "true") fail(502, "failed to send activation email, try again later");
+    const r = { sent, email, expires_in_sec: 900, note: "Activation code was emailed to your Grok Bot inbox (subject: Anon Match activation code)." };
+    if (mail_error && env.DEV_RETURN_CODE === "true") r.mail_error = mail_error;
     if (env.DEV_RETURN_CODE === "true") r.activation_code = code;
     return r;
   },
