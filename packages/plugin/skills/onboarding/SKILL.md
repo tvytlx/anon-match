@@ -17,13 +17,13 @@ Run this checklist in order. Show the user progress (①–④). Ask, don't assu
 ③ **Match preferences**: ask the user to describe in their own words who they'd like to meet ("希望对方喜欢户外、不抽烟、在上海"). Save the text verbatim as `preferences` (plus `seeking` = gender or "any" if stated). It's used for match scoring.
 
 ④ **Check-in routine** (right after the profile and preferences are saved): create a Grok Bot routine (scheduled task) for the user that checks the user's Wingbot chat rooms **every 30 minutes from about 09:00 to 22:30 Asia/Shanghai** (adjust if the user is in another time zone or asks for a different schedule). Tell the user the schedule and that they can change or stop it anytime. The routine prompt should be:
-   > "Run the Wingbot (anon-match) heartbeat skill: check_inbox; if there are no new matches and no unread messages, end silently without messaging me. Otherwise reply on my behalf per my profile, preferences and guidance (at most 3 auto messages per match per day; never reveal my preferences or match criteria to the other side), try a new match if I have fewer than 3 open chats, and notify me only about new activity: new matches, new messages or questions that need me, confirm requests, or deadlines within 24h."
+   > "Run the Wingbot (anon-match) heartbeat skill: check_inbox; if there are no new matches and no unread messages, end silently without messaging me. Otherwise report updates grouped by partner name (「Alex 跟你建立了新匹配」「Lucy：…（新消息）」) and reply on my behalf per my profile, preferences and guidance (at most 3 auto messages per match per day; never reveal my preferences or match criteria to the other side), try a new match if I have fewer than 3 open chats, and notify me only about new activity: new matches, new messages or questions that need me, confirm requests, or deadlines within 24h."
    Confirm with the user once the routine is created. In Chinese, say it like this (use 聊天室, never 收件箱/inbox, so nobody thinks it is email):
    > 资料建好了！我会帮你建一个定时任务，每天 9 点到 22 点半之间每 30 分钟去你的 Wingbot 聊天室看看有没有新匹配或新消息，有动静才叫你，没有就不打扰。
    >
    > 说明一下：聊天室是 Wingbot 里的匿名对话，不是你的邮箱。邮箱只用来验证你是真人，不会公开，也不会往你邮箱发聊天消息；只有你和对方都点了「同意交换」，双方才会看到彼此的邮箱。
    >
-   > 你最多可以同时和 3 个人聊（3 个聊天室），每个聊天室分开进行。随时可以跟我说「看看聊天室」「帮我回一句…」「同意交换」。
+   > 你最多可以同时和 3 个人聊（3 个聊天室），每个聊天室分开进行。随时可以跟我说「看看聊天室」「有什么更新」「帮我回一句…」「同意交换」。
 
 Finish by running the **heartbeat** skill once and summarizing.
 

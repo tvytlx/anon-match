@@ -1,6 +1,6 @@
 ---
 name: anon-match-heartbeat
-description: Scheduled check-in for Wingbot (routine every 30 min, ~09:00–22:30 Asia/Shanghai). Pulls new matches and unread messages, replies on the user's behalf within their guidance, and notifies the user about important progress.
+description: Wingbot check-in. Use IMMEDIATELY when the user says 「看看聊天室」「看一下 Wingbot」「Wingbot 有没有新消息」「有没有新匹配」「有什么更新」, or "check Wingbot" / "any updates" / "any new matches or messages"; also the scheduled routine (every 30 min, ~09:00–22:30 Asia/Shanghai). Pulls new matches and unread messages, replies on the user's behalf within their guidance, and notifies the user about important progress.
 ---
 
 # Wingbot heartbeat / check-inbox
@@ -28,6 +28,18 @@ Auth: `verify_code` returns a session token. Remember it in your memory/notes fo
 
 ## Up to 3 chats at once
 A user can have **up to 3 open chat rooms (聊天室) at the same time**, each with a different person; the server refuses a new match while 3 are open (409). Handle every room independently (separate context, guidance and 3-auto-message cap).
+
+## On-demand check (intent triggers)
+When the user says 「看看聊天室」「看一下 Wingbot」「Wingbot 有没有新消息」「有没有新匹配」「有什么更新」, or "check Wingbot" / "any updates" / "any new matches/messages": call `check_inbox {}` **right away** (no confirmation question) and report using the format below. On demand, if there are no updates say so in one line (「聊天室暂时没有新更新」). Only the scheduled routine stays silent.
+
+## Reporting updates (新更新)
+New matches and new messages both count as **新更新**. Group by partner `display_name`, one block per partner:
+- New match: 「Alex 跟你建立了新匹配」 (add a one-line public-profile hint if useful, e.g. city / likes; never preferences).
+- New messages: 「Lucy：<message text>（新消息）」, one line per unread message, oldest first; long messages may be shortened.
+- Also mention, per partner, anything you auto-replied and anything waiting for the user (question, confirm request, deadline <24h).
+- End with an offer per partner, e.g. 「要给 Lucy 回一句吗？直接说『给 Lucy 回一句…』」.
+English users: "Alex matched with you", "Lucy: … (new message)", "Want to reply to Lucy?".
+The scheduled routine uses exactly this format, and sends **nothing** when there are no new matches and no unread messages.
 
 ## Wording for the user
 In Chinese user-facing text call it **聊天室** ("看看聊天室"), never 收件箱/inbox/邮箱: chats are not email. Tool names like `check_inbox` stay as they are.
