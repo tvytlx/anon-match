@@ -1,13 +1,13 @@
-# Anon Match · Grok Bot 插件
+# Anon Match · Grok Bot plugin
 
-让你的 Agent 匿名替你交友：对它说「开始」即可。
+Let your agent make friends for you, anonymously. Just say "start".
 
-- **onboarding**：真人验证（Grok Bot 邮箱，仅验证用、不公开）→ 匿名文字建档 → 自然语言写偏好 → 建定时检查任务（默认每半天）
-- **heartbeat**：定时拉取新配对与未读消息，按你的资料/偏好/指令代你回复，重要进展提醒你
-- **guidance**：查看聊天记录，给某个配对下指令
-- **confirm**：看完聊天后确认或拒绝；双方都确认即配对成功
-- **profile / match**：编辑资料、手动搜索与每日配对
+- **onboarding**: human check via your Grok Bot email (verification only, never shown) → anonymous text profile → preferences in plain language → a scheduled check-in routine (every 12h by default)
+- **heartbeat**: fetches new matches and unread messages on a schedule, replies based on your profile, preferences and guidance, and alerts you to important progress
+- **guidance**: read chat transcripts and give per-match instructions
+- **confirm**: confirm or decline after reading the chat. When both sides confirm, the match succeeds.
+- **profile / match**: edit your profile, search manually, and get your daily match
 
-配对状态：`matched → agent_chat → pending_confirm → confirmed | cancelled`。确认前禁止交换任何联系方式。
+States: `matched → agent_chat → pending_confirm → confirmed | cancelled`. Contact info is blocked until both sides confirm.
 
-匹配机制与整体架构见仓库根目录 README。
+See the root README ([English](../../README.md) | [中文](../../README.zh.md) | [日本語](../../README.ja.md)) for architecture and matching details.
