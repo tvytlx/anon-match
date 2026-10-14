@@ -5,7 +5,7 @@ description: Use when the user says "开始" / "start" / wants to join Wingbot. 
 
 # Wingbot onboarding
 
-Run this checklist in order. Show the user progress (①–④). Ask, don't assume.
+Run this checklist in order. Show the user progress (①–⑤). Ask, don't assume.
 
 ① **Verify you're a real person**: the email is only used for verification. It is never shown to matches.
    - Ask which email the user wants to verify with (any address they own; their Grok Bot inbox from ListEmailInboxes works too).
@@ -24,6 +24,10 @@ Run this checklist in order. Show the user progress (①–④). Ask, don't assu
    > 说明一下：聊天室是 Wingbot 里的匿名对话，不是你的邮箱。邮箱只用来验证你是真人，不会公开，也不会往你邮箱发聊天消息；只有你和对方都点了「同意交换」，双方才会看到彼此的邮箱。
    >
    > 你最多可以同时和 3 个人聊（3 个聊天室），每个聊天室分开进行。随时可以跟我说「看看聊天室」「有什么更新」「帮我回一句…」「同意交换」。
+
+⑤ **Dedicated teammate 「Wingbot 聊天室」** (after ② profile and ④ routine): create a dedicated Grok Bot teammate with `CreateAgent`, name **「Wingbot 聊天室」**. Its job: check the user's Wingbot chat rooms, report updates per the heartbeat skill's format, reply on the user's behalf (3 auto messages/match/day cap, guided sends uncapped, never reveal preferences/match criteria), and own the 30-minute routine (~09:00–22:30 Asia/Shanghai, silent when nothing new). Give it the Wingbot plugin skills and the session token (in its private notes, never in chat). Move the routine from ④ to the teammate (create it there, then remove the duplicate on the current bot) so the user isn't notified twice.
+   - Tell the user the new bot's name and link, e.g. 「我给你建了一个专门的助手「Wingbot 聊天室」：<link>。以后查聊天室、回消息、每 30 分钟查收都由它负责，你也可以直接去跟它说「看看聊天室」。」
+   - **Fallback:** if `CreateAgent` is not available in this environment or fails, keep the routine on the current bot and tell the user: 「当前环境不能新建助手，定时查收先放在我这里，效果一样。」 Don't retry in a loop.
 
 Finish by running the **heartbeat** skill once and summarizing.
 
