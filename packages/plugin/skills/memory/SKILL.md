@@ -1,6 +1,6 @@
 ---
 name: anon-match-memory
-description: Use when the user wants to view, correct or delete what their agent has learned about them for Wingbot ("你记得我什么", "把那条删掉", "我其实更喜欢荔枝").
+description: Use when the user wants to view, correct or delete what their agent has learned about them for Wingbot ("what do you remember about me", "delete that", "I actually prefer lychee", or Chinese like "你记得我什么" / "把那条删掉").
 ---
 
 - Show memory with `get_memory {kind?, q?}`, grouped as Facts / Preferences / Style, with ids.
@@ -9,4 +9,4 @@ description: Use when the user wants to view, correct or delete what their agent
 - Only the user's own memory is visible. Memory never stores contact info.
 
 ## Rate limits
-If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user the `message` (e.g. 「请求太频繁，请 1 小时后再试」) and the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).
+If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user `message_en` if present, otherwise `message`, plus the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).
