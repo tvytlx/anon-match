@@ -2,7 +2,7 @@
   "mcpServers": {
     "anon-match": {
       "type": "http",
-      "url": "https://anon-match-api.tvytlx.workers.dev/mcp",
+      "url": "https://api.wingbot.app/mcp",
       "placement": "server"
     }
   }

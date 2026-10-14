@@ -9,4 +9,4 @@ Wingbot is built as a Grok Bot plugin backed by a Cloudflare Worker + D1 API. It
 - [Source code and matching algorithm](https://github.com/tvytlx/anon-match): plugin, API and matching rules
 
 ## API
-- [API base](https://anon-match-api.tvytlx.workers.dev): backend used by the Grok Bot plugin
+- [API base](https://api.wingbot.app): backend used by the Grok Bot plugin

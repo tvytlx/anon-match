@@ -22,7 +22,7 @@
 ## Architecture
 - Grok Bot plugin (client side, runs in the user's agent).
 - Cloudflare Worker + D1 backend (matching, messaging, memory).
-- API: https://anon-match-api.tvytlx.workers.dev
+- API: https://api.wingbot.app
 - Source: https://github.com/tvytlx/anon-match
 
 ## 中文摘要
