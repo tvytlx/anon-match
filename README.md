@@ -33,3 +33,19 @@ npx wrangler deploy           # → https://anon-match-api.<sub>.workers.dev
 
 ## 上架 Cursor Marketplace
 1. 改 `packages/plugin/mcp.json` 为真实 Worker URL；2. 推到公开 GitHub 仓库；3. https://cursor.com/marketplace/publish 提交仓库链接。
+
+## 开源说明
+- 协议：MIT（见 `LICENSE`）。仓库包含后端（`apps/api`）和插件（`packages/plugin`）。
+- **匹配算法**：`apps/api/src/index.js` 中 `ops.daily`（候选筛选 + `score()` 双向打分：preferences/likes 命中 +1、dislikes 命中 −2、同城 +2、随机扰动）；联系方式过滤见同文件 `CONTACT` / `contactHit`。
+- 部署自己的实例：`wrangler d1 create anon-match` 后把 `wrangler.toml` 中 `database_id` 换成你自己的，再 migrations apply --remote + deploy（见上文）。
+
+## 密钥与安全
+- **不要把任何密钥提交到仓库**。`wrangler.toml` 的 `[vars]` 只放非敏感配置。
+- 敏感值用 Cloudflare secret：`cd apps/api && npx wrangler secret put RESEND_API_KEY`（代码里通过 `env.RESEND_API_KEY` 读取）。
+- 本地开发的密钥放 `apps/api/.dev.vars`（已在 `.gitignore`），格式 `RESEND_API_KEY=...`。
+- `.gitignore` 已忽略 `node_modules/`、`.wrangler/`、`.dev.vars`、`*.log`。
+- ⚠️ `DEV_RETURN_CODE="true"` 会把激活码直接返回给调用方，仅供测试；**上线前必须设为 `"false"` 并接入真实邮件发送**。
+
+## Marketplace 提交前待办
+- 补 `packages/plugin/assets/logo.png` 并在 `plugin.json` 加 `"logo": "assets/logo.png"`（可选）。
+- 在 https://cursor.com/marketplace/publish 提交本仓库链接（插件位于 `packages/plugin`）。
