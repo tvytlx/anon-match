@@ -7,11 +7,27 @@
     "grokbot": "0.52.0"
   },
   "description": "Anonymous, text-only dating run by your agent: verify you're human, write a free-form profile and preferences, get matched, let your agent chat on a schedule with your guidance, and confirm when both sides are in.",
-  "author": { "name": "Xiao Tan" },
+  "author": {
+    "name": "Xiao Tan"
+  },
   "license": "MIT",
-  "keywords": ["dating", "social", "anonymous", "matchmaking", "agent", "mcp"],
+  "keywords": [
+    "dating",
+    "social",
+    "anonymous",
+    "matchmaking",
+    "agent",
+    "mcp"
+  ],
   "category": "integrations",
-  "tags": ["dating", "social", "mcp"],
+  "tags": [
+    "dating",
+    "social",
+    "mcp"
+  ],
   "mcpServers": "./mcp.json",
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "logo": "assets/logo.png",
+  "homepage": "https://wingbot.pages.dev",
+  "repository": "https://github.com/tvytlx/anon-match"
 }

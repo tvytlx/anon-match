@@ -6,7 +6,7 @@ const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, header
 class HttpErr extends Error { constructor(s, m) { super(m); this.status = s; } }
 const fail = (s, m) => { throw new HttpErr(s, m); };
 async function sha(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join(""); }
-const LIMITS = { display_name: 40, age_range: 20, gender: 20, seeking: 20, city: 60, occupation: 60, bio: 1000, likes: 500, dislikes: 500, preferences: 1000 };
+const LIMITS = { display_name: 40, age_range: 20, gender: 20, seeking: 20, city: 60, occupation: 60, bio: 500, likes: 500, dislikes: 500, preferences: 500 };
 // Contact-info filter: active only before a match is confirmed.
 const CONTACT = [
   [/[a-z0-9._%+-]+\s*(@|＠|\(at\)|\[at\])\s*[a-z0-9-]+(\s*(\.|\(dot\)|点)\s*[a-z]{2,})+/i, "email"],
@@ -29,7 +29,22 @@ const MAX_OPEN = 3; // concurrent open chats per user
 const PROFANE_MSG = (k) => `${k} contains insulting, profane or sexual words; please rephrase / ${k} 含有侮辱、脏话或性暗示词汇，请修改后再提交`;
 // Partner/public view: NEVER include matching criteria (preferences, seeking, dislikes).
 const PUBLIC_FIELDS = "user_id, display_name, age_range, gender, city, occupation, bio, likes";
-const OWN_FIELDS = PUBLIC_FIELDS + ", seeking, dislikes, preferences";
+const OWN_FIELDS = PUBLIC_FIELDS + ", seeking, dislikes, preferences, age, want_age_min, want_age_max, want_same_city, want_gender";
+// ---- optional hard filters (private; never in PUBLIC_FIELDS) ----
+export const normGender = (g) => { const x = String(g ?? "").trim().toLowerCase(); if (!x) return null;
+  if (/^(男|男生|男性|male|m|man|men|boy)$/.test(x)) return "男"; if (/^(女|女生|女性|female|f|woman|women|girl)$/.test(x)) return "女"; return null; };
+export const ageOf = (p) => { if (Number.isInteger(p.age)) return p.age; const n = String(p.age_range || "").match(/\d+/g); if (!n) return null;
+  return n.length === 1 ? +n[0] : Math.round((+n[0] + +n[1]) / 2); };
+const wantG = (p) => normGender(p.want_gender || p.seeking);
+// does y satisfy x's hard filters?
+export const fitsFilters = (x, y) => {
+  if (x.want_age_min != null || x.want_age_max != null) { const a = ageOf(y); if (a == null) return false;
+    if (x.want_age_min != null && a < x.want_age_min) return false; if (x.want_age_max != null && a > x.want_age_max) return false; }
+  if (x.want_same_city) { if (!x.city || !y.city || x.city.trim() !== y.city.trim()) return false; }
+  const g = wantG(x); if (g && normGender(y.gender) !== g) return false;
+  return true;
+};
+export const mutualFit = (a, b) => fitsFilters(a, b) && fitsFilters(b, a);
 const OPEN = "('matched','agent_chat','pending_confirm')";
 
 async function bump(env, userId, action, max) {
@@ -160,16 +175,28 @@ const ops = {
     const v = {};
     for (const [k, max] of Object.entries(LIMITS)) {
       const x = b[k] == null ? "" : Array.isArray(b[k]) ? b[k].join(", ") : String(b[k]);
-      if (x.length > max) fail(400, `${k} too long (max ${max})`);
+      if (x.length > max) fail(400, `${k} too long: ${x.length} chars, max ${max} / ${k} 超出字数上限（${x.length}/${max} 字），请精简后再保存`);
       if (BANNED.test(x)) fail(400, `${k} contains disallowed content (text-only, non-sexual social profiles)`);
       if (profaneHit(x)) fail(400, PROFANE_MSG(k));
       v[k] = x.trim();
     }
     if (!v.display_name) v.display_name = "匿名" + s.user_id.slice(-4);
     for (const k of ["bio", "display_name", "occupation", "likes", "dislikes", "preferences"]) { const h = contactHit(v[k]); if (h) fail(400, `${k} must not contain contact info (${h})`); }
-    await env.DB.prepare(`INSERT INTO profiles(user_id,display_name,age_range,gender,seeking,city,occupation,bio,likes,dislikes,preferences,state,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'draft',?)
-      ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name, age_range=excluded.age_range, gender=excluded.gender, seeking=excluded.seeking, city=excluded.city, occupation=excluded.occupation, preferences=excluded.preferences, bio=excluded.bio, likes=excluded.likes, dislikes=excluded.dislikes, updated_at=excluded.updated_at`)
-      .bind(s.user_id, v.display_name, v.age_range, v.gender, v.seeking, v.city, v.occupation, v.bio, v.likes, v.dislikes, v.preferences, now()).run();
+    // hard filters: a key that is absent keeps its stored value; null/"" clears it
+    const cur = (await env.DB.prepare("SELECT age, want_age_min, want_age_max, want_same_city, want_gender FROM profiles WHERE user_id=?").bind(s.user_id).first()) || {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
+    const intF = (k, lo, hi) => { if (!has(k)) return cur[k] ?? null; const x = b[k]; if (x == null || x === "") return null;
+      const n = Number(x); if (!Number.isInteger(n) || n < lo || n > hi) fail(400, `${k} must be an integer ${lo}-${hi} or empty / ${k} 需为 ${lo}-${hi} 的整数或留空`); return n; };
+    const f = { age: intF("age", 18, 120), want_age_min: intF("want_age_min", 18, 120), want_age_max: intF("want_age_max", 18, 120) };
+    if (f.want_age_min != null && f.want_age_max != null && f.want_age_min > f.want_age_max) fail(400, "want_age_min > want_age_max / 最小年龄不能大于最大年龄");
+    if (!has("want_same_city")) f.want_same_city = cur.want_same_city ?? null;
+    else { const x = b.want_same_city; f.want_same_city = x == null || x === "" ? null : (x === true || x === 1 || /^(true|1|yes|是)$/i.test(String(x))) ? 1 : 0; }
+    if (has("want_gender")) { const x = String(b.want_gender ?? "").trim(); if (x && !normGender(x) && !/^(any|都可以|不限|all|both)$/i.test(x)) fail(400, "want_gender must be 男/女/any / want_gender 只能是 男、女 或 any");
+      f.want_gender = normGender(x); if (!has("seeking")) v.seeking = f.want_gender || (x ? "any" : ""); }
+    else f.want_gender = has("seeking") ? normGender(v.seeking) : (cur.want_gender ?? null);
+    await env.DB.prepare(`INSERT INTO profiles(user_id,display_name,age_range,gender,seeking,city,occupation,bio,likes,dislikes,preferences,age,want_age_min,want_age_max,want_same_city,want_gender,state,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?)
+      ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name, age_range=excluded.age_range, gender=excluded.gender, seeking=excluded.seeking, city=excluded.city, occupation=excluded.occupation, preferences=excluded.preferences, bio=excluded.bio, likes=excluded.likes, dislikes=excluded.dislikes, age=excluded.age, want_age_min=excluded.want_age_min, want_age_max=excluded.want_age_max, want_same_city=excluded.want_same_city, want_gender=excluded.want_gender, updated_at=excluded.updated_at`)
+      .bind(s.user_id, v.display_name, v.age_range, v.gender, v.seeking, v.city, v.occupation, v.bio, v.likes, v.dislikes, v.preferences, f.age, f.want_age_min, f.want_age_max, f.want_same_city, f.want_gender, now()).run();
     return ops.me(env, s);
   },
   async me(env, s) {
@@ -196,8 +223,7 @@ const ops = {
       AND (SELECT COUNT(*) FROM matches m WHERE (m.user_a=p.user_id OR m.user_b=p.user_id) AND m.state IN ${OPEN}) < ${MAX_OPEN}`;
     const args = [s.user_id];
     if (target) { sql += " AND p.user_id=?2"; args.push(target); }
-    else if (me.seeking && me.seeking !== "any") { sql += " AND (p.gender=?2 OR p.gender='')"; args.push(me.seeking); }
-    const cands = (await env.DB.prepare(sql + " LIMIT 200").bind(...args).all()).results;
+    const cands = (await env.DB.prepare(sql + " LIMIT 500").bind(...args).all()).results.filter((y) => mutualFit(me, y));
     const toks = (t) => new Set(String(t || "").toLowerCase().split(/[\s,，、。;；/|]+|(?<=[\u4e00-\u9fff])(?=[\u4e00-\u9fff])/).filter(x => x.length > 0));
     const score = (x, y) => { // y's profile vs x's preferences/likes
       const want = toks(x.preferences + " " + x.likes), have = toks([y.bio, y.likes, y.city, y.occupation, y.age_range, y.gender].join(" "));
@@ -404,7 +430,7 @@ const T = "string";
 const TOOLS = [
   ["request_code", "Request an activation code to the user's own email address (human verification only; never shown to anyone)", { email: T }, false, (e, s, a, ip) => ops.requestCode(e, a, ip)],
   ["verify_code", "Verify code; returns session token. Pass it as `token` to every other tool (or Authorization: Bearer).", { email: T, code: T }, false, (e, s, a, ip) => ops.verify(e, a, ip)],
-  ["upsert_profile", "Create/update anonymous text profile; all fields optional. preferences = natural-language match preferences", { display_name: T, age_range: T, gender: T, seeking: T, city: T, occupation: T, bio: T, likes: T, dislikes: T, preferences: T }, true, (e, s, a) => ops.upsertProfile(e, s, a)],
+  ["upsert_profile", "Create/update anonymous text profile; all fields optional. preferences = natural-language match preferences (bio/likes/dislikes/preferences max 500 chars each). Optional PRIVATE hard filters (omit any; null clears): want_age_min/want_age_max (int), want_same_city (bool), want_gender (男/女/any; alias of seeking). Applied both ways. age = my own age (int)", { display_name: T, age_range: T, age: "integer", gender: T, want_gender: T, want_age_min: "integer", want_age_max: "integer", want_same_city: "boolean", seeking: T, city: T, occupation: T, bio: T, likes: T, dislikes: T, preferences: T }, true, (e, s, a) => ops.upsertProfile(e, s, a)],
   ["get_my_profile", "Get my profile", {}, true, (e, s) => ops.me(e, s)],
   ["search_profiles", "Keyword search (1/day), up to 10 anonymized profiles", { q: T }, true, (e, s, a) => ops.search(e, s, a)],
   ["daily_match", "Create today's best-scored match (1/day); optional user_id from search", { user_id: T }, true, (e, s, a) => ops.daily(e, s, a)],

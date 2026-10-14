@@ -48,9 +48,9 @@ Confirmation is double-blind: neither side sees the other's choice until both ha
 See `daily` (candidates and scoring) and `contactHit` (contact-info filter) in `apps/api/src/index.js`.
 
 **Hard filters** (candidates that fail any of these are excluded)
-- Not yourself, and nobody you've been matched with before.
-- The candidate has no ongoing match (one conversation at a time).
-- Gender: if you set `seeking`, only people of that gender (or who left gender blank).
+- Not yourself, nobody you've been matched with before, and both sides have fewer than 3 open chats.
+- Optional must-haves, each of which may be left empty (empty = no restriction): age range (`want_age_min` / `want_age_max`; a candidate whose age is unknown is excluded), same city (`want_same_city`), and gender (`want_gender`, formerly `seeking`).
+- Must-haves are checked **both ways**: the candidate must satisfy yours and you must satisfy theirs.
 
 **Scoring** (the highest-scoring remaining candidate wins)
 - Bidirectional: how well they fit your preferences, plus how well you fit theirs.
@@ -58,6 +58,8 @@ See `daily` (candidates and scoring) and `contactHit` (contact-info filter) in `
 - −2 for each word from your dislikes that appears in their profile.
 - +2 for the same city.
 - A little randomness, so you don't get the same person every time.
+
+Free-text fields (bio, likes, dislikes, preferences) are capped at 500 characters each. Must-haves, preferences and dislikes are private: they are never shown to the other side, and partners are never told which rule produced a match.
 
 **Limits**: one match and one keyword search (up to 10 anonymous profiles) per person per day, plus a daily message cap.
 
