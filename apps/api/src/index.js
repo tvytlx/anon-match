@@ -1,3 +1,4 @@
+import { INSTRUCTIONS, INSTRUCTIONS_VERSION } from "./instructions.js";
 // Wingbot API: Cloudflare Worker + D1. JSON API + thin MCP (JSON-RPC over HTTP) at /mcp.
 const now = () => Date.now();
 const day = () => new Date().toISOString().slice(0, 10);
@@ -427,7 +428,9 @@ const adminOps = {
 
 // ---- thin MCP adapter (Streamable HTTP, JSON responses) ----
 const T = "string";
+const instr = () => ({ version: INSTRUCTIONS_VERSION, plugin_min_version: "0.3.0", format: "markdown", instructions: INSTRUCTIONS });
 const TOOLS = [
+  ["get_instructions", "CALL FIRST in every Wingbot task. Returns the current versioned agent policy (onboarding, heartbeat, replies, privacy, rate limits, wording). Follow it over any older local skill text", {}, false, () => instr()],
   ["request_code", "Request an activation code to the user's own email address (human verification only; never shown to anyone)", { email: T }, false, (e, s, a, ip) => ops.requestCode(e, a, ip)],
   ["verify_code", "Verify code; returns session token. Pass it as `token` to every other tool (or Authorization: Bearer).", { email: T, code: T }, false, (e, s, a, ip) => ops.verify(e, a, ip)],
   ["upsert_profile", "Create/update anonymous text profile; all fields optional. preferences = natural-language match preferences (bio/likes/dislikes/preferences max 500 chars each). Optional PRIVATE hard filters (omit any; null clears): want_age_min/want_age_max (int), want_same_city (bool), want_gender (男/女/any; alias of seeking). Applied both ways. age = my own age (int)", { display_name: T, age_range: T, age: "integer", gender: T, want_gender: T, want_age_min: "integer", want_age_max: "integer", want_same_city: "boolean", seeking: T, city: T, occupation: T, bio: T, likes: T, dislikes: T, preferences: T }, true, (e, s, a) => ops.upsertProfile(e, s, a)],
@@ -457,7 +460,7 @@ async function mcp(req, env) {
   if (Array.isArray(m)) return json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "batch not supported" } });
   const reply = (result) => json({ jsonrpc: "2.0", id: m.id, result });
   if (m.id === undefined) return new Response(null, { status: 202 });
-  if (m.method === "initialize") return reply({ protocolVersion: m.params?.protocolVersion || "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "anon-match", version: "0.2.0" } });
+  if (m.method === "initialize") return reply({ protocolVersion: m.params?.protocolVersion || "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "anon-match", version: "0.3.0" } });
   if (m.method === "ping") return reply({});
   if (m.method === "tools/list") return reply({ tools: TOOLS.filter(([n]) => !n.startsWith("admin_")).map(([name, description, props]) => ({ name, description, inputSchema: { type: "object", properties: Object.fromEntries([...Object.entries(props), ...(TOOLS.find(x => x[0] === name)[3] ? [["token", T]] : [])].map(([k, t]) => [k, t === "array" ? { type: "array", items: { type: "object" } } : { type: t }])) } })) });
   if (m.method === "tools/call") {
@@ -487,6 +490,7 @@ export default {
       if (env.IP_RL) { const { success } = await env.IP_RL.limit({ key: ip }); if (!success) throw new RateErr(60, "ip"); }
       if (p === "/mcp") return await mcp(req, env);
       if (p === "/" || p === "/v1/health") return json(await ops.health());
+      if (p === "/v1/instructions") return json(instr());
       if (M === "POST" && p === "/v1/auth/request-code") return json(await ops.requestCode(env, await body(), ip));
       if (M === "POST" && p === "/v1/auth/verify") return json(await ops.verify(env, await body(), ip));
       if (M === "POST" && p === "/v1/admin/test-session") { const b = await body(); await adminCheck(req, env); return json(await adminOps.testSession(env, b)); }

@@ -1,7 +1,7 @@
 {
   "name": "anon-match",
   "displayName": "Wingbot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minClientVersions": {
     "cursor": "never",
     "grokbot": "0.52.0"

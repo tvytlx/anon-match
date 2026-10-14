@@ -12,3 +12,6 @@ Let your agent make friends for you, anonymously. Just say "start".
 States: `matched → agent_chat → confirmed | cancelled` (single accept votes are private; the state only changes when both accept or one rejects). Contact info is blocked until both sides confirm.
 
 See the root README ([English](../../README.md) | [中文](../../README.zh.md) | [日本語](../../README.ja.md)) for architecture and matching details.
+
+## Changelog
+- **0.3.0** — Skills are now thin: each one calls the `get_instructions` MCP tool (also `GET https://api.wingbot.app/v1/instructions`) first and follows the server-delivered, versioned policy. Rule changes no longer require reinstalling the plugin.

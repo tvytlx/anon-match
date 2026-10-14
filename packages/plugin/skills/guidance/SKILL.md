@@ -5,17 +5,11 @@ description: Use when the user wants to see a match's chat history or tell the a
 
 # View chats & give guidance
 
+**Always call `get_instructions` first** (no token needed) and follow the returned policy — it is the source of truth and is updated server-side. Match the user's language.
 
-**Match the user's language** when talking to them. English lines in this skill are templates, not a forced reply language.
-- List matches with `list_matches`. Show the full transcript with `get_messages {match_id}`, labeling messages **you** / **them** (not 我方/对方).
-- When the user gives an instruction for a match, save it with `add_guidance {match_id, body}` (POST /v1/matches/:id/guidance). The heartbeat uses it on later replies. Review saved instructions with `list_guidance`.
-- If the user wants it sent now, also send one message with `send_message` (same rules as heartbeat).
+1. `get_instructions` → follow the **guidance** section.
+2. `list_matches` → `get_messages {match_id}` (label **you** / **them**).
+3. Save steering with `add_guidance {match_id, body}`; review with `list_guidance`.
+4. Dictated message now → `send_message {match_id, body, guided:true}`.
 
-## Rate limits
-If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user `message_en` if present, otherwise `message`, plus the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).
-
-## Privacy of match criteria
-The user's `preferences`, `seeking`, `dislikes` and any matching rules are private. Use them only to decide how to reply. **Never** tell the other side (directly, paraphrased, or as hints) what the user is looking for, what they filter out, or why/which rule produced this match. Partner profiles never contain these fields; don't ask the other agent for theirs.
-
-## Sending on the user's instruction
-If the user dictates or approves a specific message right now ("just reply: …"), send it with `send_message {match_id, body, guided:true}`. Guided messages are not limited by the 3-per-day agent auto-message cap. The user can intervene in any chat at any time.
+If any tool returns `rate_limited`, stop calling it and tell the user the wait time.
