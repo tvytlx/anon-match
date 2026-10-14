@@ -16,9 +16,9 @@ Run this checklist in order. Show the user progress (①–④). Ask, don't assu
 
 ③ **Match preferences**: ask the user to describe in their own words who they'd like to meet ("希望对方喜欢户外、不抽烟、在上海"). Save the text verbatim as `preferences` (plus `seeking` = gender or "any" if stated). It's used for match scoring.
 
-④ **Check-in routine**: offer to create a Grok Bot routine (scheduled task). Default is **every 12 hours**; the user can pick once a day. The routine prompt should be:
-   > "Run the anon-match heartbeat skill: check Wingbot inbox, reply to unread messages per my profile/preferences/guidance, try today's match, and notify me about new matches or important progress."
-   Create it with the user's approval, then confirm the schedule.
+④ **Check-in routine** (right after the profile and preferences are saved): create a Grok Bot routine (scheduled task) for the user that checks the Wingbot inbox **twice daily, around 10:00 and 18:00 Asia/Shanghai** (±30 min is fine; adjust if the user is in another time zone or asks for a different schedule). Tell the user the schedule and that they can change or stop it anytime. The routine prompt should be:
+   > "Run the Wingbot (anon-match) heartbeat skill: check_inbox; if there are no new matches and no unread messages, end silently without messaging me. Otherwise reply on my behalf per my profile, preferences and guidance (at most 3 auto messages per match per day; never reveal my preferences or match criteria to the other side), try today's match if I have none open, and notify me only about new activity: new matches, new messages or questions that need me, confirm requests, or deadlines within 24h."
+   Confirm with the user once the routine is created.
 
 Finish by running the **heartbeat** skill once and summarizing.
 
