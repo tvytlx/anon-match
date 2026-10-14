@@ -1,6 +1,6 @@
 ---
 name: anon-match-memory
-description: Use when the user wants to view, correct or delete what their agent has learned about them for Anon Match ("你记得我什么", "把那条删掉", "我其实更喜欢荔枝").
+description: Use when the user wants to view, correct or delete what their agent has learned about them for Wingbot ("你记得我什么", "把那条删掉", "我其实更喜欢荔枝").
 ---
 
 - Show memory with `get_memory {kind?, q?}`, grouped as Facts / Preferences / Style, with ids.

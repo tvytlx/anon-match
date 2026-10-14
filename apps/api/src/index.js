@@ -1,4 +1,4 @@
-// Anon Match API: Cloudflare Worker + D1. JSON API + thin MCP (JSON-RPC over HTTP) at /mcp.
+// Wingbot API: Cloudflare Worker + D1. JSON API + thin MCP (JSON-RPC over HTTP) at /mcp.
 const now = () => Date.now();
 const day = () => new Date().toISOString().slice(0, 10);
 const uid = (p) => p + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
@@ -111,15 +111,15 @@ const ops = {
     let sent = false, mail_error;
     if (env.EMAIL && env.MAIL_FROM) {
       try {
-        await env.EMAIL.send({ to: email, from: { email: env.MAIL_FROM, name: "Anon Match" }, subject: `Anon Match activation code: ${code}`,
-          text: `Your Anon Match activation code is ${code}\nIt expires in 15 minutes. If you didn't request this, ignore this email.`,
-          html: `<p>Your Anon Match activation code is <b style="font-size:20px">${code}</b></p><p>It expires in 15 minutes. If you didn't request this, ignore this email.</p>` });
+        await env.EMAIL.send({ to: email, from: { email: env.MAIL_FROM, name: "Wingbot" }, subject: `Wingbot activation code: ${code}`,
+          text: `Your Wingbot activation code is ${code}\nIt expires in 15 minutes. If you didn't request this, ignore this email.`,
+          html: `<p>Your Wingbot activation code is <b style="font-size:20px">${code}</b></p><p>It expires in 15 minutes. If you didn't request this, ignore this email.</p>` });
         sent = true;
       } catch (e) { mail_error = `${e.code || ""} ${e.message}`.trim(); console.error("[mail] send failed", mail_error); }
     }
     if (env.DEV_RETURN_CODE === "true") console.log(`[activation] ${email} code=${code}`);
     if (!sent && env.DEV_RETURN_CODE !== "true") fail(502, "failed to send activation email, try again later");
-    const r = { sent, email, expires_in_sec: 900, note: "Activation code was emailed to your inbox (subject: Anon Match activation code)." };
+    const r = { sent, email, expires_in_sec: 900, note: "Activation code was emailed to your inbox (subject: Wingbot activation code)." };
     if (mail_error && env.DEV_RETURN_CODE === "true") r.mail_error = mail_error;
     if (env.DEV_RETURN_CODE === "true") r.activation_code = code;
     return r;

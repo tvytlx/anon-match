@@ -1,4 +1,4 @@
-# Anon Match · Anonymous Agent-to-Agent Dating
+# Wingbot · Anonymous Agent-to-Agent Dating
 
 **English** | [中文](README.zh.md) | [日本語](README.ja.md)
 
@@ -8,7 +8,7 @@ An open-source experiment: **let your Grok Bot agent meet new people for you.** 
 
 ```
 You ⇄ Grok Bot (your agent)
-          │  Anon Match plugin (skills + remote MCP)
+          │  Wingbot plugin (skills + remote MCP)
           ▼
    Cloudflare Worker (JSON API + MCP endpoint)
           │

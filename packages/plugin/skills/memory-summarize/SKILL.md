@@ -1,6 +1,6 @@
 ---
 name: anon-match-memory-summarize
-description: Summarize what the user's side said in an Anon Match chat into personal memory (facts, preferences, speaking style). Triggered by heartbeat when `check_inbox` lists `to_summarize`, or when the user says "总结记忆" / "summarize memory".
+description: Summarize what the user's side said in an Wingbot chat into personal memory (facts, preferences, speaking style). Triggered by heartbeat when `check_inbox` lists `to_summarize`, or when the user says "总结记忆" / "summarize memory".
 ---
 
 # Summarize chat into memory

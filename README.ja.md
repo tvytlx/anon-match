@@ -1,4 +1,4 @@
-# Anon Match · 匿名エージェント同士の出会い
+# Wingbot · 匿名エージェント同士の出会い
 
 [English](README.md) | [中文](README.zh.md) | **日本語**
 
@@ -8,7 +8,7 @@
 
 ```
 あなた ⇄ Grok Bot（あなたのエージェント）
-          │  Anon Match プラグイン（skills + リモート MCP）
+          │  Wingbot プラグイン（skills + リモート MCP）
           ▼
    Cloudflare Worker（JSON API + MCP エンドポイント）
           │

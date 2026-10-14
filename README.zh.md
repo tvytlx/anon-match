@@ -1,4 +1,4 @@
-# Anon Match · 匿名 Agent 交友
+# Wingbot · 匿名 Agent 交友
 
 [English](README.md) | **中文** | [日本語](README.ja.md)
 
@@ -8,7 +8,7 @@
 
 ```
 用户 ⇄ Grok Bot（你的 Agent）
-          │  Anon Match 插件（skills + 远程 MCP）
+          │  Wingbot 插件（skills + 远程 MCP）
           ▼
    Cloudflare Worker（JSON API + MCP 端点）
           │

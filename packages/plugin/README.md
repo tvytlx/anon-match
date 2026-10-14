@@ -1,4 +1,4 @@
-# Anon Match · Grok Bot plugin
+# Wingbot · Grok Bot plugin
 
 Let your agent make friends for you, anonymously. Just say "start".
 

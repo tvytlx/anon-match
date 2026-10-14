@@ -1,9 +1,9 @@
 ---
 name: anon-match-heartbeat
-description: Scheduled check-in for Anon Match (routine every 12h or daily). Pulls new matches and unread messages, replies on the user's behalf within their guidance, and notifies the user about important progress.
+description: Scheduled check-in for Wingbot (routine every 12h or daily). Pulls new matches and unread messages, replies on the user's behalf within their guidance, and notifies the user about important progress.
 ---
 
-# Anon Match heartbeat / check-inbox
+# Wingbot heartbeat / check-inbox
 
 Auth: `verify_code` returns a session token. Remember it in your memory/notes for this user (never show it in chat) and pass it as the `token` argument to every other anon-match tool. If the token is missing or expired (401), tell the user to rerun onboarding step ①.
 
