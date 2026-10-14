@@ -1,0 +1,13 @@
+name = "anon-match-api"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "anon-match"
+database_id = "REPLACE_AFTER_d1_create"
+
+[vars]
+EMAIL_DOMAIN = "mail.grokbot.com"
+DEV_RETURN_CODE = "true"   # MVP: return activation_code in response (no mail service yet)
+REVEAL_TIMEOUT_HOURS = "72"

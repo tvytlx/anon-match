@@ -1,0 +1,12 @@
+{
+  "name": "anon-match",
+  "displayName": "Anon Match",
+  "version": "0.1.0",
+  "description": "Anonymous, text-only dating via your agent: profile, daily match, agent-relayed chat, double-opt-in Grok Bot email reveal.",
+  "author": { "name": "Xiao Tan" },
+  "license": "MIT",
+  "keywords": ["dating", "social", "anonymous", "grokbot"],
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "minClientVersions": { "grokbot": "1.0.0" }
+}

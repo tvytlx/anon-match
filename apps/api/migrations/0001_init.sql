@@ -1,0 +1,10 @@
+CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL);
+CREATE TABLE auth_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE profiles (user_id TEXT PRIMARY KEY REFERENCES users(id), display_name TEXT, age_range TEXT, gender TEXT, seeking TEXT, city TEXT, bio TEXT, likes TEXT, dislikes TEXT, state TEXT NOT NULL DEFAULT 'draft', updated_at INTEGER NOT NULL);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL);
+CREATE TABLE matches (id TEXT PRIMARY KEY, user_a TEXT NOT NULL, user_b TEXT NOT NULL, state TEXT NOT NULL, created_at INTEGER NOT NULL, reveal_deadline INTEGER, updated_at INTEGER NOT NULL);
+CREATE INDEX idx_matches_a ON matches(user_a); CREATE INDEX idx_matches_b ON matches(user_b);
+CREATE TABLE messages (id TEXT PRIMARY KEY, match_id TEXT NOT NULL, sender_id TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX idx_messages_match ON messages(match_id, created_at);
+CREATE TABLE reveal_votes (match_id TEXT NOT NULL, user_id TEXT NOT NULL, decision TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (match_id, user_id));
+CREATE TABLE rate_limits (user_id TEXT NOT NULL, action TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, action, day));
