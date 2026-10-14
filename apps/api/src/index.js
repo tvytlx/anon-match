@@ -21,6 +21,12 @@ const CONTACT = [
 ];
 const contactHit = (t) => { for (const [re, n] of CONTACT) if (re.test(t)) return n; return null; };
 const BANNED = /(nude|nudes|porn|色情|裸照|约炮|escort)/i;
+// Insults / profanity / sexual slurs (EN + ZH). Applied to display_name, bio, likes, dislikes, occupation, messages, memories.
+const PROFANE_EN = /\b(dicks?|dickhead|cocks?|cocksucker|pussy|pussies|cunts?|twats?|fuck\w*|fck|fuk|motherfucker|shit\w*|bullshit|bitch\w*|bastards?|assholes?|arsehole|whores?|sluts?|hoes?|wankers?|jerk ?off|blowjob|handjob|cum|rapist|rape|retard\w*|fag|faggots?|dyke|nigg\w*|chinks?|spic|kike|tranny|prick|douche\w*|tits?|boobs?|horny|milf|dildo|penis|vagina|anal)\b/i;
+const PROFANE_ZH = /(傻逼|傻b|煞笔|沙比|操你|草你|肏|日你妈|干你娘|艹你|尼玛|他妈的|tmd|nmsl|去死|废物|贱人|贱货|婊子|骚货|骚逼|浪货|荡妇|妓女|鸡巴|几把|鸡吧|屌|屄|逼样|狗日|王八蛋|畜生|杂种|野种|滚蛋|脑残|智障|弱智|死妈|绿茶婊|白莲花婊|阴茎|阴道|做爱|性交|口交|撸管|打飞机|淫荡|奶子)/i;
+const profaneHit = (t) => { const x = String(t || "").normalize("NFKC").replace(/[\s._\-*·]+/g, ""); return PROFANE_EN.test(String(t || "")) || PROFANE_ZH.test(x) || /(fuck|cunt|傻逼|鸡巴)/i.test(x); };
+const MAX_OPEN = 3; // concurrent open chats per user
+const PROFANE_MSG = (k) => `${k} contains insulting, profane or sexual words; please rephrase / ${k} 含有侮辱、脏话或性暗示词汇，请修改后再提交`;
 // Partner/public view: NEVER include matching criteria (preferences, seeking, dislikes).
 const PUBLIC_FIELDS = "user_id, display_name, age_range, gender, city, occupation, bio, likes";
 const OWN_FIELDS = PUBLIC_FIELDS + ", seeking, dislikes, preferences";
@@ -148,6 +154,7 @@ const ops = {
       const x = b[k] == null ? "" : Array.isArray(b[k]) ? b[k].join(", ") : String(b[k]);
       if (x.length > max) fail(400, `${k} too long (max ${max})`);
       if (BANNED.test(x)) fail(400, `${k} contains disallowed content (text-only, non-sexual social profiles)`);
+      if (profaneHit(x)) fail(400, PROFANE_MSG(k));
       v[k] = x.trim();
     }
     if (!v.display_name) v.display_name = "匿名" + s.user_id.slice(-4);
@@ -173,10 +180,12 @@ const ops = {
     const me = await env.DB.prepare("SELECT * FROM profiles WHERE user_id=?").bind(s.user_id).first();
     if (!me) fail(400, "create your profile first");
     const target = b && b.user_id;
-    await bump(env, s.user_id, "match", 1);
+    const openN = async (u) => (await env.DB.prepare(`SELECT COUNT(*) n FROM matches WHERE (user_a=? OR user_b=?) AND state IN ${OPEN}`).bind(u, u).first()).n;
+    if (await openN(s.user_id) >= MAX_OPEN) fail(409, `you already have ${MAX_OPEN} open chats (max concurrent); finish or end one first / 已有 ${MAX_OPEN} 个进行中的聊天室`);
+    await bump(env, s.user_id, "match", 3);
     let sql = `SELECT p.* FROM profiles p WHERE p.user_id<>?1 AND p.user_id NOT IN (SELECT id FROM users WHERE is_test=1)
       AND NOT EXISTS (SELECT 1 FROM matches m WHERE (m.user_a=?1 AND m.user_b=p.user_id) OR (m.user_b=?1 AND m.user_a=p.user_id))
-      AND NOT EXISTS (SELECT 1 FROM matches m WHERE (m.user_a=p.user_id OR m.user_b=p.user_id) AND m.state IN ${OPEN})`;
+      AND (SELECT COUNT(*) FROM matches m WHERE (m.user_a=p.user_id OR m.user_b=p.user_id) AND m.state IN ${OPEN}) < ${MAX_OPEN}`;
     const args = [s.user_id];
     if (target) { sql += " AND p.user_id=?2"; args.push(target); }
     else if (me.seeking && me.seeking !== "any") { sql += " AND (p.gender=?2 OR p.gender='')"; args.push(me.seeking); }
@@ -209,6 +218,7 @@ const ops = {
     const body = String(b.body || "").trim();
     if (!body || body.length > 2000) fail(400, "body required (max 2000 chars)");
     if (BANNED.test(body)) fail(400, "message contains disallowed content");
+    if (profaneHit(body)) fail(400, PROFANE_MSG("message"));
     if (m.state !== "confirmed") { const h = contactHit(body); if (h) fail(400, `contact info (${h}) is blocked until both sides confirm the match`); }
     await bump(env, s.user_id, "message", 100);
     // agent auto messages: max 3 per user per match per day (Asia/Shanghai day); guided:true (user-directed) skips the cap
@@ -280,7 +290,7 @@ const ops = {
       const kind = String(it.kind || ""), key = String(it.key || "").trim(), value = String(it.value || "").trim();
       if (!["fact", "preference", "style"].includes(kind)) fail(400, "kind must be fact|preference|style");
       if (!key || key.length > 200 || !value || value.length > 1000) fail(400, "key (≤200) and value (≤1000) required");
-      for (const [k, v] of [["key", key], ["value", value]]) { const h = contactHit(v); if (h) fail(400, `memory ${k} must not contain contact info (${h})`); if (BANNED.test(v)) fail(400, "disallowed content"); }
+      for (const [k, v] of [["key", key], ["value", value]]) { const h = contactHit(v); if (h) fail(400, `memory ${k} must not contain contact info (${h})`); if (BANNED.test(v)) fail(400, "disallowed content"); if (profaneHit(v)) fail(400, PROFANE_MSG(`memory ${k}`)); }
       if (it.source_match_id) await loadMatch(env, it.source_match_id, s.user_id);
       await env.DB.prepare("INSERT INTO memories(id,user_id,kind,key,value,source_match_id,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,kind,key) DO UPDATE SET value=excluded.value, source_match_id=COALESCE(excluded.source_match_id, memories.source_match_id), updated_at=excluded.updated_at")
         .bind(uid("mem"), s.user_id, kind, key, value, it.source_match_id || null, now()).run();

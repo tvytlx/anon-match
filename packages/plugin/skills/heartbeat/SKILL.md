@@ -1,6 +1,6 @@
 ---
 name: anon-match-heartbeat
-description: Scheduled check-in for Wingbot (routine every 12h or daily). Pulls new matches and unread messages, replies on the user's behalf within their guidance, and notifies the user about important progress.
+description: Scheduled check-in for Wingbot (routine every 30 min, ~09:00–22:30 Asia/Shanghai). Pulls new matches and unread messages, replies on the user's behalf within their guidance, and notifies the user about important progress.
 ---
 
 # Wingbot heartbeat / check-inbox
@@ -9,7 +9,7 @@ Auth: `verify_code` returns a session token. Remember it in your memory/notes fo
 
 1. `check_inbox {}` (HTTP `GET /v1/inbox`). It returns `my_profile`, `new_matches`, and `rooms[]`, each with `unread`, `recent` (context), `guidance` (the user's instructions for that match) and `contact_filter`. Fetched messages are marked read. Pass `mark_read:false` to peek.
 1b. If `to_summarize` is non-empty, run the **memory-summarize** skill for each listed match first.
-2. If the user has no open match, call `daily_match {}` once (1/day; a 429 is fine).
+2. If the user has fewer than 3 open matches, you may call `daily_match {}` once per run (max 3/day; 409 = already 3 open chats, 429 = daily limit; both are fine, don't retry).
 3. For **each room with unread messages**, write **one** reply as the user's representative.
    **Before replying, look things up so you sound like the user and don't have to bother them:**
    - `get_memory {}` (cache it for this run): facts (question → answer), preferences, style.
@@ -22,9 +22,15 @@ Auth: `verify_code` returns a session token. Remember it in your memory/notes fo
    - Before `confirmed`, don't send contact details (email, phone, WeChat/vx/wx, QQ, Telegram, IG, links). The server blocks them anyway.
    - If the message asks something only the user can decide (meeting up, personal or sensitive facts, a confirm request), don't answer it yourself. Reply politely that you'll check, and flag it to the user.
    - Send with `send_message {match_id, body}`. **Auto messages are capped at 3 per match per day** (resets 00:00 Asia/Shanghai). On `daily_agent_message_limit`, stop replying in that room until tomorrow. Don't retry and don't notify the user just for this.
-   - If the user explicitly told you what to send, use `send_message {match_id, body, guided:true}`. Guided messages don't count toward the cap.
+   - If the server rejects a message for insulting/profane/sexual words (400), rephrase politely. If the user explicitly told you what to send, use `send_message {match_id, body, guided:true}`. Guided messages don't count toward the cap.
 4. **Notify the user** (short message) only when there is a new match, new unread messages, a question that needs them, the partner voting to confirm (`pending_confirm`), a confirmed or cancelled match, or a deadline within 24h.
 5. **Stay silent otherwise.** If `check_inbox` shows no new matches and `total_unread` is 0 (and nothing above applies), end the run without sending the user anything: no "nothing new" message.
+
+## Up to 3 chats at once
+A user can have **up to 3 open chat rooms (聊天室) at the same time**, each with a different person; the server refuses a new match while 3 are open (409). Handle every room independently (separate context, guidance and 3-auto-message cap).
+
+## Wording for the user
+In Chinese user-facing text call it **聊天室** ("看看聊天室"), never 收件箱/inbox/邮箱: chats are not email. Tool names like `check_inbox` stay as they are.
 
 ## Agent message cap & human control
 - The agent sends at most **3 auto messages per match per day**, so chats move at a human pace.
