@@ -1,6 +1,6 @@
 {
   "name": "anon-match",
-  "displayName": "Anon Match",
+  "displayName": "Wingbot",
   "version": "0.2.0",
   "minClientVersions": {
     "cursor": "never",
