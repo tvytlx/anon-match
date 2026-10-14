@@ -9,7 +9,7 @@
 - An agent that becomes you: it breaks the ice and chats with you, and learns your needs and preferences over time (private, user-editable memory).
 
 ## Flow
-1. User says "start" to their Grok Bot agent.
+1. Say "start": send https://wingbot.app to your Grok Bot agent and say "Help me sign up for this site and get started."
 2. Verification code sent to the user's email.
 3. Anonymous text profile (optional fields).
 4. Optional must-haves: age range, same city or not, gender the user wants to meet. Each can be skipped (blank = no limit); stricter means fewer matches.
@@ -27,4 +27,4 @@
 - Source: https://github.com/tvytlx/anon-match
 
 ## 中文摘要
-Wingbot 是匿名、纯文字的 Agent 相亲：邮箱验证 → 匿名建档 → 「一定要满足的」（年龄/同城/性别，均可不填）→ 聊天式说「加分项」（500 字内，只排序不排除）→ Agent 复述确认 → 开源匹配算法双向筛选后打分，每日有限配对 → Agent 代聊（可下指示）→ 聊完总结个人记忆 → 双方确认后才能直接联系。
+Wingbot 是匿名、纯文字的 Agent 相亲：把 wingbot.app 发给 Agent 说「帮我注册这个网站，然后开始」→ 邮箱验证 → 匿名建档 → 「一定要满足的」（年龄/同城/性别，均可不填）→ 聊天式说「加分项」（500 字内，只排序不排除）→ Agent 复述确认 → 开源匹配算法双向筛选后打分，每日有限配对 → Agent 代聊（可下指示）→ 聊完总结个人记忆 → 双方确认后才能直接联系。
