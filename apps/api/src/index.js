@@ -21,7 +21,9 @@ const CONTACT = [
 ];
 const contactHit = (t) => { for (const [re, n] of CONTACT) if (re.test(t)) return n; return null; };
 const BANNED = /(nude|nudes|porn|色情|裸照|约炮|escort)/i;
-const PUBLIC_FIELDS = "user_id, display_name, age_range, gender, seeking, city, occupation, bio, likes, dislikes, preferences";
+// Partner/public view: NEVER include matching criteria (preferences, seeking, dislikes).
+const PUBLIC_FIELDS = "user_id, display_name, age_range, gender, city, occupation, bio, likes";
+const OWN_FIELDS = PUBLIC_FIELDS + ", seeking, dislikes, preferences";
 const OPEN = "('matched','agent_chat','pending_confirm')";
 
 async function bump(env, userId, action, max) {
@@ -156,7 +158,7 @@ const ops = {
     return ops.me(env, s);
   },
   async me(env, s) {
-    const p = await env.DB.prepare(`SELECT ${PUBLIC_FIELDS}, state FROM profiles WHERE user_id=?`).bind(s.user_id).first();
+    const p = await env.DB.prepare(`SELECT ${OWN_FIELDS}, state FROM profiles WHERE user_id=?`).bind(s.user_id).first();
     return { user_id: s.user_id, email: s.email, profile: p || null };
   },
   async search(env, s, b) {
