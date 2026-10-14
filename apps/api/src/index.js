@@ -37,6 +37,33 @@ async function auth(req, env, tok) {
   if (!s) fail(401, "invalid or expired session");
   return s;
 }
+
+// ---- rate limiting (D1 fixed windows + optional IP_RL binding) ----
+const RL = { // [per minute, per day]
+  check_inbox: [20, 500], get_messages: [30, 1000], send_message: [10, 300], upsert_profile: [5, 50], add_guidance: [10, 100],
+  upsert_memory: [100, 1000], delete_memory: [30, 500], mark_summarized: [30, 500], confirm_match: [5, 30], _read: [60, 2000] };
+const dur = (sec) => sec >= 3600 ? [`${Math.ceil(sec / 3600)} 小时`, `${Math.ceil(sec / 3600)} hour(s)`] : [`${Math.max(1, Math.ceil(sec / 60))} 分钟`, `${Math.max(1, Math.ceil(sec / 60))} minute(s)`];
+class RateErr extends HttpErr { constructor(sec, scope, zh) { const [z, e] = dur(sec); super(429, `Too many requests, please retry in ${e}`); this.retry = sec; this.scope = scope; this.zh = zh || `请求太频繁，请 ${z}后再试`; } }
+const rateBody = (e) => ({ error: "rate_limited", message: e.zh, message_en: e.message, retry_after_sec: e.retry, scope: e.scope });
+const ipOf = (req) => req.headers.get("cf-connecting-ip") || "unknown";
+// specs: [bucket, windowSec, max, scope, zhMsg?, increment?]
+async function hit(env, specs) {
+  const t = Math.floor(now() / 1000);
+  const rs = await env.DB.batch(specs.map(([b, w, , , , inc = 1]) => env.DB.prepare("INSERT INTO rl(bucket,win,n) VALUES(?,?,?) ON CONFLICT(bucket,win) DO UPDATE SET n=n+excluded.n RETURNING n").bind(b, t - t % w, inc)));
+  if (Math.random() < 0.01) await env.DB.prepare("DELETE FROM rl WHERE win<?").bind(t - 2 * 86400).run();
+  specs.forEach(([, w, max, scope, zh], i) => { if (rs[i].results[0].n > max) throw new RateErr(w - t % w, scope, zh); });
+}
+async function peek(env, b, w) { const t = Math.floor(now() / 1000); const r = await env.DB.prepare("SELECT n FROM rl WHERE bucket=? AND win=?").bind(b, t - t % w).first(); return { n: r ? r.n : 0, left: w - t % w }; }
+async function limitUser(env, s, tool, a = {}) {
+  const [m, d] = RL[tool] || RL._read, inc = tool === "upsert_memory" ? (Array.isArray(a.items) ? Math.max(1, a.items.length) : 1) : 1;
+  const k = RL[tool] ? tool : "read", specs = [[`u:${s.user_id}:${k}:m`, 60, m, "user", null, inc], [`u:${s.user_id}:${k}:d`, 86400, d, "user", null, inc]];
+  if (tool === "send_message" && a.match_id) specs.push([`room:${s.user_id}:${a.match_id}`, 86400, 100, "room", "这个房间今天消息太多了，休息一下，明天再聊"]);
+  await hit(env, specs);
+}
+async function authLimited(req, env, tok) {
+  try { return await auth(req, env, tok); }
+  catch (e) { if (e.status === 401) await hit(env, [[`badauth:${ipOf(req)}`, 600, 20, "ip", "无效凭证尝试过多，请 10 分钟后再试"]]); throw e; }
+}
 async function loadMatch(env, id, userId) {
   const m = await env.DB.prepare("SELECT * FROM matches WHERE id=?").bind(id).first();
   if (!m || (m.user_a !== userId && m.user_b !== userId)) fail(404, "match not found");
@@ -64,14 +91,22 @@ async function matchView(env, m, me) {
   return out;
 }
 
+const MAX_BODY = 32 * 1024;
+async function readBody(req) {
+  if (Number(req.headers.get("content-length") || 0) > MAX_BODY) fail(413, "request body too large (max 32KB)");
+  const t = await req.text(); if (t.length > MAX_BODY) fail(413, "request body too large (max 32KB)"); return t;
+}
 const ops = {
   async health() { return { ok: true, service: "anon-match-api", time: new Date().toISOString() }; },
-  async requestCode(env, b) {
+  async requestCode(env, b, ip = "unknown") {
     const email = String(b.email || "").trim().toLowerCase();
     if (!new RegExp(`^[a-z0-9._+-]+@${env.EMAIL_DOMAIN.replace(/\./g, "\\.")}$`).test(email)) fail(400, `only *@${env.EMAIL_DOMAIN} emails are accepted`);
+    const zh = "验证码发送太频繁，请稍后再试";
+    await hit(env, [[`rc:e:${email}:m`, 60, 1, "email", "验证码发送太频繁，请 1 分钟后再试"], [`rc:e:${email}:h`, 3600, 5, "email"], [`rc:e:${email}:d`, 86400, 10, "email"],
+      [`rc:ip:${ip}:m`, 60, 3, "ip"], [`rc:ip:${ip}:d`, 86400, 20, "ip"], ["rc:global:d", 86400, 500, "global", "系统繁忙，今日验证码额度已用完，请明天再试"]]);
     const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
-    await env.DB.prepare("INSERT INTO users(id,email,created_at) VALUES(?,?,?) ON CONFLICT(email) DO NOTHING").bind(uid("u"), email, now()).run();
-    await env.DB.prepare("INSERT INTO auth_codes(email,code_hash,expires_at,attempts) VALUES(?,?,?,0) ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0").bind(email, await sha(code), now() + 15 * 60e3).run();
+    // attempts persist across resends; only reset once the previous code has expired
+    await env.DB.prepare("INSERT INTO auth_codes(email,code_hash,expires_at,attempts) VALUES(?1,?2,?3,0) ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash, attempts=CASE WHEN auth_codes.expires_at<?4 THEN 0 ELSE auth_codes.attempts END, expires_at=excluded.expires_at").bind(email, await sha(code), now() + 15 * 60e3, now()).run();
     let sent = false, mail_error;
     if (env.EMAIL && env.MAIL_FROM) {
       try {
@@ -88,14 +123,17 @@ const ops = {
     if (env.DEV_RETURN_CODE === "true") r.activation_code = code;
     return r;
   },
-  async verify(env, b) {
+  async verify(env, b, ip = "unknown") {
     const email = String(b.email || "").trim().toLowerCase();
+    await hit(env, [[`vf:ip:${ip}:m`, 60, 10, "ip"], [`vf:ip:${ip}:h`, 3600, 50, "ip"]]);
+    const lock = await peek(env, `vf:fail:${email}`, 3600);
+    if (lock.n >= 10) throw new RateErr(lock.left, "email", `验证码错误次数过多，请 ${dur(lock.left)[0]}后再试`);
     const row = await env.DB.prepare("SELECT * FROM auth_codes WHERE email=?").bind(email).first();
     if (!row || row.expires_at < now()) fail(400, "code expired or not requested");
     if (row.attempts >= 5) fail(429, "too many attempts, request a new code");
-    if (row.code_hash !== await sha(String(b.code || ""))) { await env.DB.prepare("UPDATE auth_codes SET attempts=attempts+1 WHERE email=?").bind(email).run(); fail(400, "wrong code"); }
+    if (row.code_hash !== await sha(String(b.code || ""))) { await env.DB.prepare("UPDATE auth_codes SET attempts=attempts+1 WHERE email=?").bind(email).run(); await hit(env, [[`vf:fail:${email}`, 3600, 1e9, "email"]]); fail(400, "wrong code"); }
     await env.DB.prepare("DELETE FROM auth_codes WHERE email=?").bind(email).run();
-    await env.DB.prepare("UPDATE users SET status='active' WHERE email=?").bind(email).run();
+    await env.DB.prepare("INSERT INTO users(id,email,status,created_at) VALUES(?,?,'active',?) ON CONFLICT(email) DO UPDATE SET status='active'").bind(uid("u"), email, now()).run();
     const u = await env.DB.prepare("SELECT id FROM users WHERE email=?").bind(email).first();
     const token = crypto.randomUUID() + crypto.randomUUID();
     await env.DB.prepare("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)").bind(await sha(token), u.id, now() + 30 * 864e5).run();
@@ -284,8 +322,8 @@ const ops = {
 // ---- thin MCP adapter (Streamable HTTP, JSON responses) ----
 const T = "string";
 const TOOLS = [
-  ["request_code", "Request an activation code for the user's *@mail.grokbot.com email (human verification only)", { email: T }, false, (e, s, a) => ops.requestCode(e, a)],
-  ["verify_code", "Verify code; returns session token. Pass it as `token` to every other tool (or Authorization: Bearer).", { email: T, code: T }, false, (e, s, a) => ops.verify(e, a)],
+  ["request_code", "Request an activation code for the user's *@mail.grokbot.com email (human verification only)", { email: T }, false, (e, s, a, ip) => ops.requestCode(e, a, ip)],
+  ["verify_code", "Verify code; returns session token. Pass it as `token` to every other tool (or Authorization: Bearer).", { email: T, code: T }, false, (e, s, a, ip) => ops.verify(e, a, ip)],
   ["upsert_profile", "Create/update anonymous text profile; all fields optional. preferences = natural-language match preferences", { display_name: T, age_range: T, gender: T, seeking: T, city: T, occupation: T, bio: T, likes: T, dislikes: T, preferences: T }, true, (e, s, a) => ops.upsertProfile(e, s, a)],
   ["get_my_profile", "Get my profile", {}, true, (e, s) => ops.me(e, s)],
   ["search_profiles", "Keyword search (1/day), up to 10 anonymized profiles", { q: T }, true, (e, s, a) => ops.search(e, s, a)],
@@ -306,7 +344,8 @@ const TOOLS = [
 ];
 async function mcp(req, env) {
   if (req.method !== "POST") return json({ error: "POST JSON-RPC to /mcp" }, 405);
-  const m = await req.json();
+  let m; try { m = JSON.parse(await readBody(req)); } catch (e) { if (e.status) throw e; return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }); }
+  if (Array.isArray(m)) return json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "batch not supported" } });
   const reply = (result) => json({ jsonrpc: "2.0", id: m.id, result });
   if (m.id === undefined) return new Response(null, { status: 202 });
   if (m.method === "initialize") return reply({ protocolVersion: m.params?.protocolVersion || "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "anon-match", version: "0.2.0" } });
@@ -317,10 +356,14 @@ async function mcp(req, env) {
     if (!t) return json({ jsonrpc: "2.0", id: m.id, error: { code: -32602, message: "unknown tool" } });
     try {
       const args = m.params.arguments || {};
-      const s = t[3] ? await auth(req, env, args.token) : null;
-      const r = await t[4](env, s, args);
+      const s = t[3] ? await authLimited(req, env, args.token) : null;
+      if (s) await limitUser(env, s, t[0], args);
+      const r = await t[4](env, s, args, ipOf(req));
       return reply({ content: [{ type: "text", text: JSON.stringify(r) }] });
-    } catch (e) { return reply({ isError: true, content: [{ type: "text", text: e.message }] }); }
+    } catch (e) {
+      if (e instanceof RateErr) return reply({ isError: true, content: [{ type: "text", text: JSON.stringify(rateBody(e)) }], _meta: { error: "rate_limited", retry_after_sec: e.retry } });
+      return reply({ isError: true, content: [{ type: "text", text: e.message }] });
+    }
   }
   return json({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: "method not found" } });
 }
@@ -329,13 +372,21 @@ export default {
   async fetch(req, env) {
     if (req.method === "OPTIONS") return json({});
     const url = new URL(req.url), p = url.pathname, M = req.method;
-    const body = async () => { try { return await req.json(); } catch { return {}; } };
+    const ip = ipOf(req);
+    const body = async () => { const t = await readBody(req); try { return JSON.parse(t || "{}"); } catch { return {}; } };
     try {
+      if (env.IP_RL) { const { success } = await env.IP_RL.limit({ key: ip }); if (!success) throw new RateErr(60, "ip"); }
       if (p === "/mcp") return await mcp(req, env);
       if (p === "/" || p === "/v1/health") return json(await ops.health());
-      if (M === "POST" && p === "/v1/auth/request-code") return json(await ops.requestCode(env, await body()));
-      if (M === "POST" && p === "/v1/auth/verify") return json(await ops.verify(env, await body()));
-      const s = await auth(req, env);
+      if (M === "POST" && p === "/v1/auth/request-code") return json(await ops.requestCode(env, await body(), ip));
+      if (M === "POST" && p === "/v1/auth/verify") return json(await ops.verify(env, await body(), ip));
+      const s = await authLimited(req, env);
+      const mmx = p.match(/^\/v1\/matches\/([\w-]+)\/(\w+)$/);
+      const tool = M === "GET" && p === "/v1/inbox" ? "check_inbox" : M === "POST" && p === "/v1/profile" ? "upsert_profile" : p === "/v1/memory" && M === "POST" ? "upsert_memory"
+        : p.startsWith("/v1/memory/") && M === "DELETE" ? "delete_memory" : mmx && M === "POST" ? ({ messages: "send_message", guidance: "add_guidance", summarized: "mark_summarized", confirm: "confirm_match", reveal: "confirm_match" })[mmx[2]]
+        : mmx && mmx[2] === "messages" ? "get_messages" : "_read";
+      let lb = {}; if (tool === "upsert_memory") { lb = await body(); req.__b = lb; } if (mmx) lb = { ...lb, match_id: mmx[1] };
+      await limitUser(env, s, tool, lb);
       if (M === "POST" && p === "/v1/profile") return json(await ops.upsertProfile(env, s, await body()));
       if (M === "GET" && p === "/v1/profile/me") return json(await ops.me(env, s));
       if (M === "POST" && p === "/v1/search") return json(await ops.search(env, s, await body()));
@@ -343,7 +394,7 @@ export default {
       if (M === "GET" && p === "/v1/inbox") return json(await ops.inbox(env, s, { mark_read: url.searchParams.get("mark_read") !== "0" }));
       if (M === "GET" && p === "/v1/matches") return url.searchParams.get("unread") === "1" ? json(await ops.inbox(env, s, { mark_read: false })) : json(await ops.listMatches(env, s));
       if (p === "/v1/memory" && M === "GET") return json(await ops.listMemory(env, s, Object.fromEntries(url.searchParams)));
-      if (p === "/v1/memory" && M === "POST") return json(await ops.upsertMemory(env, s, await body()));
+      if (p === "/v1/memory" && M === "POST") return json(await ops.upsertMemory(env, s, req.__b || await body()));
       const md = p.match(/^\/v1\/memory\/([\w-]+)$/);
       if (md && M === "DELETE") return json(await ops.deleteMemory(env, s, md[1]));
       if (p === "/v1/history/answers" && M === "GET") return json(await ops.historyAnswers(env, s, Object.fromEntries(url.searchParams)));
@@ -355,6 +406,9 @@ export default {
       if (mm && mm[2] === "messages" && M === "GET") return json(await ops.getMessages(env, s, mm[1]));
       if (mm && (mm[2] === "confirm" || mm[2] === "reveal") && M === "POST") return json(await ops.confirm(env, s, mm[1], await body()));
       return json({ error: "not found" }, 404);
-    } catch (e) { return json({ error: e.message }, e.status || 500); }
+    } catch (e) {
+      if (e instanceof RateErr) { const r = json(rateBody(e), 429); r.headers.set("retry-after", String(e.retry)); return r; }
+      return json({ error: e.message }, e.status || 500);
+    }
   },
 };

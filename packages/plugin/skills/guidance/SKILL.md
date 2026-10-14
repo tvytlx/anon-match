@@ -8,3 +8,6 @@ description: Use when the user wants to see a match's chat history or tell the a
 - List matches with `list_matches`. Show the full transcript with `get_messages {match_id}`, labeling messages 我方 or 对方.
 - When the user gives an instruction for a match, save it with `add_guidance {match_id, body}` (POST /v1/matches/:id/guidance). The heartbeat uses it on later replies. Review saved instructions with `list_guidance`.
 - If the user wants it sent now, also send one message with `send_message` (same rules as heartbeat).
+
+## Rate limits
+If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user the `message` (e.g. 「请求太频繁，请 1 小时后再试」) and the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).

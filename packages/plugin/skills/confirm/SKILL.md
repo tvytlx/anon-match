@@ -9,3 +9,6 @@ description: Use when the user wants to confirm or decline a match after reading
 - `confirm_match {match_id, decision: "confirm"|"reject"}` (POST /v1/matches/:id/confirm).
 - Voting is double-blind. When both confirm, the state becomes **confirmed** and the contact filter is lifted, so the two can exchange contact details in chat if they wish. No email is exposed by the platform. Any reject, or 72h without both confirming, means **cancelled**.
 - Never confirm without the user's explicit yes.
+
+## Rate limits
+If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user the `message` (e.g. 「请求太频繁，请 1 小时后再试」) and the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).

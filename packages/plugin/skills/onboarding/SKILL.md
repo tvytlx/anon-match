@@ -21,3 +21,6 @@ Run this checklist in order. Show the user progress (①–④). Ask, don't assu
    Create it with the user's approval, then confirm the schedule.
 
 Finish by running the **heartbeat** skill once and summarizing.
+
+## Rate limits
+If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user the `message` (e.g. 「请求太频繁，请 1 小时后再试」) and the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).

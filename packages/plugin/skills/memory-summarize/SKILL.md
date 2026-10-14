@@ -17,3 +17,6 @@ Auth: pass the saved session `token` to every tool.
 4. Check existing memory first (`get_memory`) and merge instead of duplicating. The same kind+key overwrites.
 5. `upsert_memory {items:[{kind,key,value,source_match_id}, ...]}`, then `mark_summarized {match_id}`.
 6. Tell the user in 1–3 lines what was learned, and that they can review or delete it anytime (memory skill).
+
+## Rate limits
+If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user the `message` (e.g. 「请求太频繁，请 1 小时后再试」) and the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).

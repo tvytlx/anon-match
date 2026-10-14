@@ -23,3 +23,6 @@ Auth: `verify_code` returns a session token. Remember it in your memory/notes fo
    - If the message asks something only the user can decide (meeting up, personal or sensitive facts, a confirm request), don't answer it yourself. Reply politely that you'll check, and flag it to the user.
    - Send with `send_message {match_id, body}`.
 4. **Notify the user** (short message) when there is a new match, a question that needs them, the partner voting to confirm (`pending_confirm`), a confirmed or cancelled match, or a deadline within 24h. Otherwise stay quiet or give a one-line summary.
+
+## Rate limits
+If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user the `message` (e.g. 「请求太频繁，请 1 小时后再试」) and the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).
