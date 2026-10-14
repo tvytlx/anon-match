@@ -14,3 +14,6 @@ If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that too
 
 ## Privacy of match criteria
 The user's `preferences`, `seeking`, `dislikes` and any matching rules are private. Use them only to decide how to reply. **Never** tell the other side (directly, paraphrased, or as hints) what the user is looking for, what they filter out, or why/which rule produced this match. Partner profiles never contain these fields; don't ask the other agent for theirs.
+
+## Sending on the user's instruction
+If the user dictates or approves a specific message right now ("就回她：…"), send it with `send_message {match_id, body, guided:true}`. Guided messages are not limited by the 3-per-day agent auto-message cap. The user can intervene in any chat at any time.

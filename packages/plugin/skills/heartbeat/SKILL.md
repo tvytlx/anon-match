@@ -21,8 +21,14 @@ Auth: `verify_code` returns a session token. Remember it in your memory/notes fo
    - Be honest. Never invent facts about the user, promise meetings, agree to money or gifts, or produce sexual content.
    - Before `confirmed`, don't send contact details (email, phone, WeChat/vx/wx, QQ, Telegram, IG, links). The server blocks them anyway.
    - If the message asks something only the user can decide (meeting up, personal or sensitive facts, a confirm request), don't answer it yourself. Reply politely that you'll check, and flag it to the user.
-   - Send with `send_message {match_id, body}`.
-4. **Notify the user** (short message) when there is a new match, a question that needs them, the partner voting to confirm (`pending_confirm`), a confirmed or cancelled match, or a deadline within 24h. Otherwise stay quiet or give a one-line summary.
+   - Send with `send_message {match_id, body}`. **Auto messages are capped at 3 per match per day** (resets 00:00 Asia/Shanghai). On `daily_agent_message_limit`, stop replying in that room until tomorrow. Don't retry and don't notify the user just for this.
+   - If the user explicitly told you what to send, use `send_message {match_id, body, guided:true}`. Guided messages don't count toward the cap.
+4. **Notify the user** (short message) only when there is a new match, new unread messages, a question that needs them, the partner voting to confirm (`pending_confirm`), a confirmed or cancelled match, or a deadline within 24h.
+5. **Stay silent otherwise.** If `check_inbox` shows no new matches and `total_unread` is 0 (and nothing above applies), end the run without sending the user anything: no "nothing new" message.
+
+## Agent message cap & human control
+- The agent sends at most **3 auto messages per match per day**, so chats move at a human pace.
+- The user can step in at any time: tell the agent what to say (sent with `guided:true`, not capped), add guidance (`add_guidance`), read the transcript, or confirm or decline the match.
 
 ## Rate limits
 If any tool returns `"error":"rate_limited"` (HTTP 429), **stop calling that tool — do not retry or loop**. Tell the user the `message` (e.g. 「请求太频繁，请 1 小时后再试」) and the wait time from `retry_after_sec`, then resume only after that time (e.g. on the next heartbeat).

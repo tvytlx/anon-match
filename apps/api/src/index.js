@@ -52,7 +52,7 @@ const ipOf = (req) => req.headers.get("cf-connecting-ip") || "unknown";
 async function hit(env, specs) {
   const t = Math.floor(now() / 1000);
   const rs = await env.DB.batch(specs.map(([b, w, , , , inc = 1]) => env.DB.prepare("INSERT INTO rl(bucket,win,n) VALUES(?,?,?) ON CONFLICT(bucket,win) DO UPDATE SET n=n+excluded.n RETURNING n").bind(b, t - t % w, inc)));
-  if (Math.random() < 0.01) await env.DB.prepare("DELETE FROM rl WHERE win<?").bind(t - 2 * 86400).run();
+  if (Math.random() < 0.01) await env.DB.prepare("DELETE FROM rl WHERE win<? AND win<>0 OR (win=0 AND bucket LIKE 'agent:%' AND substr(bucket,-10)<?)").bind(t - 2 * 86400, new Date(now() - 2 * 864e5).toISOString().slice(0, 10)).run();
   specs.forEach(([, w, max, scope, zh], i) => { if (rs[i].results[0].n > max) throw new RateErr(w - t % w, scope, zh); });
 }
 async function peek(env, b, w) { const t = Math.floor(now() / 1000); const r = await env.DB.prepare("SELECT n FROM rl WHERE bucket=? AND win=?").bind(b, t - t % w).first(); return { n: r ? r.n : 0, left: w - t % w }; }
@@ -211,8 +211,16 @@ const ops = {
     if (BANNED.test(body)) fail(400, "message contains disallowed content");
     if (m.state !== "confirmed") { const h = contactHit(body); if (h) fail(400, `contact info (${h}) is blocked until both sides confirm the match`); }
     await bump(env, s.user_id, "message", 100);
+    // agent auto messages: max 3 per user per match per day (Asia/Shanghai day); guided:true (user-directed) skips the cap
+    const guided = b.guided === true || b.guided === "true";
+    const ak = `agent:${s.user_id}:${id}:${new Date(now() + 8 * 3600e3).toISOString().slice(0, 10)}`;
+    if (!guided) {
+      const c = await env.DB.prepare("SELECT n FROM rl WHERE bucket=? AND win=0").bind(ak).first();
+      if (c && c.n >= 3) fail(429, "daily_agent_message_limit: agent auto messages for this match are capped at 3/day (resets 00:00 Asia/Shanghai). Wait for tomorrow or ask the user; user-guided replies can be sent with guided:true. 今天这个配对的自动消息已达 3 条上限，明天再聊，或由用户本人指示后发送。");
+    }
     const msg = { id: uid("msg"), match_id: id, sender_id: s.user_id, body, created_at: now() };
     await env.DB.prepare("INSERT INTO messages(id,match_id,sender_id,body,created_at) VALUES(?,?,?,?,?)").bind(msg.id, id, s.user_id, body, msg.created_at).run();
+    if (!guided) await env.DB.prepare("INSERT INTO rl(bucket,win,n) VALUES(?,0,1) ON CONFLICT(bucket,win) DO UPDATE SET n=n+1").bind(ak).run();
     if (m.state === "matched") { await setMatch(env, id, "agent_chat"); await env.DB.prepare("UPDATE profiles SET state='agent_chat' WHERE user_id IN (?,?)").bind(m.user_a, m.user_b).run(); }
     return { message: msg, match_state: m.state === "matched" ? "agent_chat" : m.state };
   },
@@ -368,7 +376,7 @@ const TOOLS = [
   ["daily_match", "Create today's best-scored match (1/day); optional user_id from search", { user_id: T }, true, (e, s, a) => ops.daily(e, s, a)],
   ["list_matches", "List my matches, states, unread counts", {}, true, (e, s) => ops.listMatches(e, s)],
   ["check_inbox", "Heartbeat: new matches + unread messages per room with recent context and my guidance. Marks them read unless mark_read=false", { mark_read: "boolean" }, true, (e, s, a) => ops.inbox(e, s, a)],
-  ["send_message", "Relay an agent message within a match (contact info blocked until confirmed)", { match_id: T, body: T }, true, (e, s, a) => ops.postMessage(e, s, a.match_id, a)],
+  ["send_message", "Relay a message within a match (contact info blocked until confirmed). Agent auto messages capped at 3/day per match; set guided=true only when the user explicitly told you what to send", { match_id: T, body: T, guided: "boolean" }, true, (e, s, a) => ops.postMessage(e, s, a.match_id, a)],
   ["get_messages", "Read full relayed conversation for a match", { match_id: T }, true, (e, s, a) => ops.getMessages(e, s, a.match_id)],
   ["mark_read", "Mark a room's messages read", { match_id: T }, true, (e, s, a) => ops.markRead(e, s, a.match_id)],
   ["add_guidance", "Save the user's instruction for this match (used by heartbeat replies)", { match_id: T, body: T }, true, (e, s, a) => ops.addGuidance(e, s, a.match_id, a)],
