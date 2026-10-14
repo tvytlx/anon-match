@@ -80,10 +80,14 @@ async function loadMatch(env, id, userId) {
   }
   return m;
 }
+async function addEvent(env, userId, type, matchId, payload) {
+  await env.DB.prepare("INSERT INTO events(user_id,type,match_id,payload,created_at) VALUES(?,?,?,?,?)").bind(userId, type, matchId || null, payload ? JSON.stringify(payload) : null, now()).run();
+}
 async function setMatch(env, id, state) {
   await env.DB.prepare("UPDATE matches SET state=?, updated_at=? WHERE id=?").bind(state, now(), id).run();
   if (state === "cancelled" || state === "confirmed") {
     const m = await env.DB.prepare("SELECT user_a,user_b FROM matches WHERE id=?").bind(id).first();
+    if (state === "cancelled") for (const u of [m.user_a, m.user_b]) await addEvent(env, u, "match_cancelled", id, {});
     if (state === "cancelled") for (const u of [m.user_a, m.user_b]) {
       const open = await env.DB.prepare("SELECT 1 FROM matches WHERE (user_a=? OR user_b=?) AND state IN ('matched','agent_chat','pending_confirm')").bind(u, u).first();
       if (!open) await env.DB.prepare("UPDATE profiles SET state='draft' WHERE user_id=?").bind(u).run();
@@ -96,6 +100,10 @@ async function matchView(env, m, me) {
   const out = { match_id: m.id, state: m.state, partner: p, created_at: m.created_at, confirm_deadline: m.reveal_deadline };
   out.unread = (await env.DB.prepare("SELECT COUNT(*) n FROM messages WHERE match_id=? AND sender_id<>? AND read_at IS NULL").bind(m.id, me).first()).n;
   out.contact_filter = m.state !== "confirmed";
+  // double-blind: only my own vote is visible to me; partner's vote never exposed
+  const mine = await env.DB.prepare("SELECT decision FROM reveal_votes WHERE match_id=? AND user_id=?").bind(m.id, me).first();
+  if (mine && m.state === "agent_chat") { out.my_decision = mine.decision; out.waiting_for_partner = mine.decision === "accept"; }
+  if (m.state === "confirmed") out.partner_email = (await env.DB.prepare("SELECT email FROM users WHERE id=?").bind(other).first())?.email;
   if ((await env.DB.prepare("SELECT is_test FROM users WHERE id=?").bind(other).first())?.is_test) { out.partner_is_official_test = true; out.notice = "这是 Wingbot 官方测试账号（非真实用户） / Official Wingbot test account, not a real person"; }
   return out;
 }
@@ -203,7 +211,7 @@ const ops = {
     const id = uid("m"), t = now();
     await env.DB.prepare("INSERT INTO matches(id,user_a,user_b,state,created_at,updated_at,reveal_deadline) VALUES(?,?,?,'matched',?,?,?)").bind(id, s.user_id, c.user_id, t, t, t + Number(env.REVEAL_TIMEOUT_HOURS) * 3600e3).run();
     await env.DB.prepare("UPDATE profiles SET state='matched' WHERE user_id IN (?,?)").bind(s.user_id, c.user_id).run();
-    console.log(`[notify] match ${id} created; would email both users`);
+    for (const [u, o] of [[s.user_id, c.user_id], [c.user_id, s.user_id]]) await addEvent(env, u, "new_match", id, { partner_name: (await env.DB.prepare("SELECT display_name FROM profiles WHERE user_id=?").bind(o).first())?.display_name });
     return { matched: true, match: await matchView(env, await loadMatch(env, id, s.user_id), s.user_id) };
   },
   async listMatches(env, s) {
@@ -230,6 +238,7 @@ const ops = {
     }
     const msg = { id: uid("msg"), match_id: id, sender_id: s.user_id, body, created_at: now() };
     await env.DB.prepare("INSERT INTO messages(id,match_id,sender_id,body,created_at) VALUES(?,?,?,?,?)").bind(msg.id, id, s.user_id, body, msg.created_at).run();
+    await addEvent(env, m.user_a === s.user_id ? m.user_b : m.user_a, "new_message", id, { message_id: msg.id, body: body.slice(0, 200) });
     if (!guided) await env.DB.prepare("INSERT INTO rl(bucket,win,n) VALUES(?,0,1) ON CONFLICT(bucket,win) DO UPDATE SET n=n+1").bind(ak).run();
     if (m.state === "matched") { await setMatch(env, id, "agent_chat"); await env.DB.prepare("UPDATE profiles SET state='agent_chat' WHERE user_id IN (?,?)").bind(m.user_a, m.user_b).run(); }
     return { message: msg, match_state: m.state === "matched" ? "agent_chat" : m.state };
@@ -258,7 +267,8 @@ const ops = {
     const to_summarize = [];
     for (const e of ended) { const m = await loadMatch(env, e.id, s.user_id); if (m.state === "confirmed" || m.state === "cancelled") to_summarize.push({ match_id: m.id, state: m.state }); }
     const mem_count = (await env.DB.prepare("SELECT COUNT(*) n FROM memories WHERE user_id=?").bind(s.user_id).first()).n;
-    return { my_profile: me.profile, memory_count: mem_count, to_summarize, new_matches, rooms, total_unread: rooms.reduce((a, r) => a + r.unread.length, 0) };
+    const events = (await ops.events(env, s, { since: b.since })).events;
+    return { events, my_profile: me.profile, memory_count: mem_count, to_summarize, new_matches, rooms, total_unread: rooms.reduce((a, r) => a + r.unread.length, 0) };
   },
   async markRead(env, s, id) {
     await loadMatch(env, id, s.user_id);
@@ -321,20 +331,34 @@ const ops = {
     const r = await env.DB.prepare("SELECT id, sender_id, body, created_at FROM messages WHERE match_id=? ORDER BY created_at ASC LIMIT 500").bind(id).all();
     return { match_id: id, messages: r.results.map(x => ({ ...x, from_me: x.sender_id === s.user_id })) };
   },
+  async events(env, s, q) {
+    const since = Number(q.since || 0);
+    const r = (await env.DB.prepare("SELECT id, type, match_id, payload, created_at FROM events WHERE user_id=? AND id>? ORDER BY id DESC LIMIT 100").bind(s.user_id, since).all()).results.reverse();
+    return { events: r.map(e => ({ ...e, payload: e.payload ? JSON.parse(e.payload) : {} })), next_since: r.length ? r[r.length - 1].id : since };
+  },
   async confirm(env, s, id, b) {
     const m = await loadMatch(env, id, s.user_id);
     const d = b.decision;
     if (d === "confirm") b.decision = "accept"; const dd = b.decision; if (!["accept", "reject"].includes(dd)) fail(400, "decision must be confirm|accept|reject");
     if (!["agent_chat", "pending_confirm"].includes(m.state)) fail(409, `cannot confirm in state ${m.state} (chat via agent first)`);
     await env.DB.prepare("INSERT INTO reveal_votes(match_id,user_id,decision,created_at) VALUES(?,?,?,?) ON CONFLICT(match_id,user_id) DO UPDATE SET decision=excluded.decision, created_at=excluded.created_at").bind(id, s.user_id, dd, now()).run();
-    let state;
-    if (dd === "reject") state = "cancelled";
+    let state = m.state === "pending_confirm" ? "agent_chat" : m.state;
+    if (dd === "reject") { state = "cancelled"; await setMatch(env, id, state); }
     else {
       const v = await env.DB.prepare("SELECT COUNT(*) n FROM reveal_votes WHERE match_id=? AND decision='accept'").bind(id).first();
-      state = v.n >= 2 ? "confirmed" : "pending_confirm";
+      if (v.n >= 2) {
+        // atomic-ish: only the request that flips the state writes the events
+        const u = await env.DB.prepare("UPDATE matches SET state='confirmed', updated_at=? WHERE id=? AND state<>'confirmed'").bind(now(), id).run();
+        if (u.meta.changes) {
+          await env.DB.prepare("UPDATE profiles SET state='confirmed' WHERE user_id IN (?,?)").bind(m.user_a, m.user_b).run();
+          const em = async (x) => (await env.DB.prepare("SELECT u.email, p.display_name FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=?").bind(x).first());
+          const A = await em(m.user_a), B = await em(m.user_b);
+          await addEvent(env, m.user_a, "match_confirmed", id, { partner_name: B.display_name, partner_email: B.email });
+          await addEvent(env, m.user_b, "match_confirmed", id, { partner_name: A.display_name, partner_email: A.email });
+        }
+      }
+      // single accept: stored privately, public state unchanged (no event, no profile change)
     }
-    await setMatch(env, id, state);
-    if (state !== "cancelled") await env.DB.prepare("UPDATE profiles SET state=? WHERE user_id IN (?,?)").bind(state, m.user_a, m.user_b).run();
     // double-blind: the other side's vote is never exposed until both accept
     return { match: await matchView(env, await loadMatch(env, id, s.user_id), s.user_id) };
   },
@@ -396,7 +420,8 @@ const TOOLS = [
   ["delete_memory", "Delete one of my memories by id", { id: T }, true, (e, s, a) => ops.deleteMemory(e, s, a.id)],
   ["search_my_answers", "Keyword search over messages I (the user's side) sent in past chats; optional match_id. Never returns the partner's messages", { q: T, match_id: T }, true, (e, s, a) => ops.historyAnswers(e, s, a)],
   ["mark_summarized", "Mark an ended match as summarized into memory", { match_id: T }, true, (e, s, a) => ops.markSummarized(e, s, a.match_id)],
-  ["confirm_match", "Vote confirm|reject. Both confirm → confirmed (contact filter lifted). Any reject/72h timeout → cancelled", { match_id: T, decision: T }, true, (e, s, a) => ops.confirm(e, s, a.match_id, a)],
+  ["get_events", "Typed events for me: new_match, new_message, match_confirmed (payload has partner_email), match_cancelled. Pass since=<last id> to get only newer", { since: T }, true, (e, s, a) => ops.events(e, s, a)],
+  ["confirm_match", "Double-blind vote accept|reject. A single accept is private (partner sees nothing; you see my_decision/waiting_for_partner). Both accept → confirmed + match_confirmed event with emails to both. Any reject/72h timeout → cancelled", { match_id: T, decision: T }, true, (e, s, a) => ops.confirm(e, s, a.match_id, a)],
   ["admin_test_session", "ADMIN ONLY. Ensure the official test account exists (labeled, excluded from matching) and get a session token for it", { admin_secret: T, test_email: T }, false, async (e, s, a, ip, req) => { await adminCheck(req, e, a.admin_secret); return adminOps.testSession(e, a); }],
   ["admin_force_match", "ADMIN ONLY. Force-match a verified real user (by email) with the official test account", { admin_secret: T, user_email: T, test_email: T }, false, async (e, s, a, ip, req) => { await adminCheck(req, e, a.admin_secret); return adminOps.forceMatch(e, a); }],
 ];
@@ -451,7 +476,8 @@ export default {
       if (M === "GET" && p === "/v1/profile/me") return json(await ops.me(env, s));
       if (M === "POST" && p === "/v1/search") return json(await ops.search(env, s, await body()));
       if (M === "POST" && p === "/v1/match/daily") return json(await ops.daily(env, s, await body()));
-      if (M === "GET" && p === "/v1/inbox") return json(await ops.inbox(env, s, { mark_read: url.searchParams.get("mark_read") !== "0" }));
+      if (M === "GET" && p === "/v1/inbox") return json(await ops.inbox(env, s, { mark_read: url.searchParams.get("mark_read") !== "0", since: url.searchParams.get("since") }));
+      if (M === "GET" && p === "/v1/events") return json(await ops.events(env, s, Object.fromEntries(url.searchParams)));
       if (M === "GET" && p === "/v1/matches") return url.searchParams.get("unread") === "1" ? json(await ops.inbox(env, s, { mark_read: false })) : json(await ops.listMatches(env, s));
       if (p === "/v1/memory" && M === "GET") return json(await ops.listMemory(env, s, Object.fromEntries(url.searchParams)));
       if (p === "/v1/memory" && M === "POST") return json(await ops.upsertMemory(env, s, req.__b || await body()));

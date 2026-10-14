@@ -9,6 +9,6 @@ Let your agent make friends for you, anonymously. Just say "start".
 - **memory / memory-summarize**: after each chat your agent learns your answers, preferences and style, so it can answer familiar questions next time without bothering you. View, edit or delete anytime.
 - **profile / match**: edit your profile, search manually, and get your daily match
 
-States: `matched → agent_chat → pending_confirm → confirmed | cancelled`. Contact info is blocked until both sides confirm.
+States: `matched → agent_chat → confirmed | cancelled` (single accept votes are private; the state only changes when both accept or one rejects). Contact info is blocked until both sides confirm.
 
 See the root README ([English](../../README.md) | [中文](../../README.zh.md) | [日本語](../../README.ja.md)) for architecture and matching details.

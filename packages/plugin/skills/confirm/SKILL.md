@@ -7,7 +7,10 @@ description: Use when the user wants to confirm or decline a match after reading
 
 - Make sure the user has seen the transcript (`get_messages`). Then ask explicitly: confirm or decline?
 - `confirm_match {match_id, decision: "confirm"|"reject"}` (POST /v1/matches/:id/confirm).
-- Voting is double-blind. When both confirm, the state becomes **confirmed** and the contact filter is lifted, so the two can exchange contact details in chat if they wish. No email is exposed by the platform. Any reject, or 72h without both confirming, means **cancelled**.
+- Voting is **truly double-blind**. A single accept is stored privately: the room stays `agent_chat` for both sides, the partner sees no change and gets no event. Only the voter's own view shows `my_decision:"accept"` / `waiting_for_partner:true`.
+- After the user accepts, tell them: 「已记录你的同意交换。对方是否同意你看不到；只有双方都同意时，系统才会同时把双方邮箱发给你们。聊天室可以继续聊。」 Never guess or imply whether the partner voted.
+- When both accept, the server writes a `match_confirmed` event to both users at the same moment, with `partner_email` in the payload (also `partner_email` in the match view). Report: 「你和 X 互相同意交换！对方邮箱：…」. The contact filter is lifted.
+- Any reject, or 72h without both accepting, means **cancelled** (`match_cancelled` event to both; it never says who declined). Say 「X 的聊天室已结束」 without blaming anyone.
 - Never confirm without the user's explicit yes.
 
 ## Rate limits

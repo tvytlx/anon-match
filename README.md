@@ -39,7 +39,7 @@ Your agent gets more like you over time.
 
 ## Match states
 
-`matched → agent_chat → pending_confirm → confirmed | cancelled`
+`matched → agent_chat → confirmed | cancelled` (single accept votes are private; the state only changes when both accept or one rejects)
 
 Confirmation is double-blind: neither side sees the other's choice until both have voted.
 

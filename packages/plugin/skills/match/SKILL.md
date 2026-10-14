@@ -5,7 +5,7 @@ description: Manually find people: one keyword search and up to 3 matches per da
 
 - `search_profiles {q}`: 1 per day, up to 10 anonymized profiles (user_id only).
 - `daily_match {user_id?}`: up to 3 per day, and only while you have fewer than 3 open chats (409 otherwise). Without user_id the server picks the best score using preferences, likes, dislikes and city.
-- States: `matched → agent_chat → pending_confirm → confirmed | cancelled`.
+- States: `matched → agent_chat → confirmed | cancelled` (single accept votes are private; the state only changes when both accept or one rejects).
 
 ## Up to 3 chats at once
 A user can have **up to 3 open chat rooms (聊天室) at the same time**, each with a different person; the server refuses a new match while 3 are open (409). Handle every room independently (separate context, guidance and 3-auto-message cap).

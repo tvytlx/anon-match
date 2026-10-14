@@ -8,6 +8,7 @@ description: Wingbot check-in. Use IMMEDIATELY when the user says 「看看聊�
 Auth: `verify_code` returns a session token. Remember it in your memory/notes for this user (never show it in chat) and pass it as the `token` argument to every other anon-match tool. If the token is missing or expired (401), tell the user to rerun onboarding step ①.
 
 1. `check_inbox {}` (HTTP `GET /v1/inbox`). It returns `my_profile`, `new_matches`, and `rooms[]`, each with `unread`, `recent` (context), `guidance` (the user's instructions for that match) and `contact_filter`. Fetched messages are marked read. Pass `mark_read:false` to peek.
+1a. `check_inbox` also returns `events[]` (typed, also via `get_events {since}` / `GET /v1/events?since=`): `new_match`, `new_message`, `match_confirmed` (payload `partner_name`, `partner_email`), `match_cancelled`. Remember the last event `id` in your notes and pass it as `since` next time so each event is reported once. There is **no** event for a single accept vote, by design.
 1b. If `to_summarize` is non-empty, run the **memory-summarize** skill for each listed match first.
 2. If the user has fewer than 3 open matches, you may call `daily_match {}` once per run (max 3/day; 409 = already 3 open chats, 429 = daily limit; both are fine, don't retry).
 2c. **Auto-reply timing rule (per room, every 30-min poll).** Use the room's `recent` (has `from_me`, `created_at`) rather than only `unread`, because fetched messages are marked read:
@@ -30,7 +31,7 @@ Auth: `verify_code` returns a session token. Remember it in your memory/notes fo
    - If the message asks something only the user can decide (meeting up, personal or sensitive facts, a confirm request), don't answer it yourself. Reply politely that you'll check, and flag it to the user.
    - Send with `send_message {match_id, body}`. **Auto messages are capped at 3 per match per day** (resets 00:00 Asia/Shanghai). On `daily_agent_message_limit`, stop replying in that room until tomorrow. Don't retry and don't notify the user just for this.
    - If the server rejects a message for insulting/profane/sexual words (400), rephrase politely. If the user explicitly told you what to send, use `send_message {match_id, body, guided:true}`. Guided messages don't count toward the cap.
-4. **Notify the user** (short message) only when there is a new match, new unread messages, a question that needs them, the partner voting to confirm (`pending_confirm`), a confirmed or cancelled match, or a deadline within 24h.
+4. **Notify the user** (short message) only when there is a new match, new unread messages, a question that needs them, a `match_confirmed` or `match_cancelled` event, or a deadline within 24h.
 5. **Stay silent otherwise.** If `check_inbox` shows no new matches and `total_unread` is 0 (and nothing above applies), end the run without sending the user anything: no "nothing new" message.
 
 ## Up to 3 chats at once
@@ -43,6 +44,9 @@ When the user says 「看看聊天室」「看一下 Wingbot」「Wingbot 有没
 New matches and new messages both count as **新更新**. Group by partner `display_name`, one block per partner:
 - New match: 「Alex 跟你建立了新匹配」 (add a one-line public-profile hint if useful, e.g. city / likes; never preferences).
 - New messages: 「Lucy：<message text>（新消息）」, one line per unread message, oldest first; long messages may be shortened.
+- Match confirmed (`match_confirmed`): 「你和 X 互相同意交换！对方邮箱：<partner_email>」.
+- Cancelled (`match_cancelled`): 「X 的聊天室已结束」 (never say who declined).
+- If the user's own room shows `waiting_for_partner:true`, you may remind 「你已同意交换，对方状态不可见」; never speculate about the partner.
 - Also mention, per partner, anything you auto-replied and anything waiting for the user (question, confirm request, deadline <24h).
 - End with an offer per partner, e.g. 「要给 Lucy 回一句吗？直接说『给 Lucy 回一句…』」.
 English users: "Alex matched with you", "Lucy: … (new message)", "Want to reply to Lucy?".

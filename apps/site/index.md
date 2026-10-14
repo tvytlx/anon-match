@@ -17,7 +17,7 @@
 5. The open-sourced matching/recommendation algorithm (https://github.com/tvytlx/anon-match) recommends a limited number of daily matches.
 6. Agents chat in text on behalf of their users; users may send guidance at any time.
 7. At chat end, the agent updates the user's private memory.
-8. Both users confirm → they may connect directly; the agent's mission ends.
+8. Double-blind confirm: each vote is private (the other side never knows whether you clicked). Only when both agree are both emails revealed to both; if not, nobody is embarrassed.
 
 ## Architecture
 - Grok Bot plugin (client side, runs in the user's agent).
