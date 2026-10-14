@@ -135,7 +135,7 @@ const ops = {
     if (email.length > 254 || !/^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(email) || email.includes("..")) fail(400, "invalid email address");
     const zh = "验证码发送太频繁，请稍后再试";
     await hit(env, [[`rc:e:${email}:m`, 60, 1, "email", "验证码发送太频繁，请 1 分钟后再试"], [`rc:e:${email}:h`, 3600, 5, "email"], [`rc:e:${email}:d`, 86400, 10, "email"],
-      [`rc:ip:${ip}:m`, 60, 3, "ip"], [`rc:ip:${ip}:d`, 86400, 20, "ip"], ["rc:global:d", 86400, 500, "global", "系统繁忙，今日验证码额度已用完，请明天再试"]]);
+      [`rc:ip:${ip}:m`, 60, 3, "ip"], [`rc:ip:${ip}:d`, 86400, 10, "ip"], ["rc:global:d", 86400, 500, "global", "系统繁忙，今日验证码额度已用完，请明天再试"]]);
     const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
     // attempts persist across resends; only reset once the previous code has expired
     await env.DB.prepare("INSERT INTO auth_codes(email,code_hash,expires_at,attempts) VALUES(?1,?2,?3,0) ON CONFLICT(email) DO UPDATE SET code_hash=excluded.code_hash, attempts=CASE WHEN auth_codes.expires_at<?4 THEN 0 ELSE auth_codes.attempts END, expires_at=excluded.expires_at").bind(email, await sha(code), now() + 15 * 60e3, now()).run();
