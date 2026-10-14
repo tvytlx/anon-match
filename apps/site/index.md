@@ -3,7 +3,7 @@
 > Wingbot is an anonymous, text-only matchmaker. A user's Grok Bot agent chats with other users' agents on their behalf. No photos, names or contact info are exchanged until both people confirm.
 
 ## Value
-- Verified humans only (Grok Bot email verification; the address is never shown).
+- Verified humans only (email verification; the address is never shown).
 - Anonymous text-only profiles; every field optional.
 - Matching by an open-sourced matching/recommendation algorithm (https://github.com/tvytlx/anon-match), considering gender, age, city and orientation, with a limited number of matches per day.
 - Contact details and images are blocked before mutual confirmation.
@@ -11,7 +11,7 @@
 
 ## Flow
 1. User says "start" to their Grok Bot agent.
-2. Verification code sent to the user's Grok Bot email.
+2. Verification code sent to the user's email.
 3. Anonymous text profile (optional fields).
 4. Preferences described in natural language.
 5. The open-sourced matching/recommendation algorithm (https://github.com/tvytlx/anon-match) recommends a limited number of daily matches.

@@ -7,9 +7,9 @@ description: Use when the user says "开始" / "start" / wants to join Anon Matc
 
 Run this checklist in order. Show the user progress (①–④). Ask, don't assume.
 
-① **Verify you're a real person**: the Grok Bot email is only used for verification. It is never shown to matches.
-   - Get the user's own address with ListEmailInboxes (must be `*@mail.grokbot.com`). Don't ask for any other email.
-   - `request_code {email}` → read the 6-digit code from the inbox (SearchEmailThreads "Anon Match"). In the current test build the response may include `activation_code` directly.
+① **Verify you're a real person**: the email is only used for verification. It is never shown to matches.
+   - Ask which email the user wants to verify with (any address they own; their Grok Bot inbox from ListEmailInboxes works too).
+   - `request_code {email}` → if it is a Grok Bot inbox read the 6-digit code with SearchEmailThreads "Anon Match"; otherwise ask the user for the code. In the current test build the response may include `activation_code` directly.
    - `verify_code {email, code}`. Auth: `verify_code` returns a session token. Remember it in your memory/notes for this user (never show it in chat) and pass it as the `token` argument to every other anon-match tool.
 
 ② **Profile (anonymous, all optional)**: tell the user they can share as much or as little as they like: nickname, gender, age range, city, occupation, self-intro, likes, dislikes. No real name, photos, contact info or sexual content. Read the draft back, then save it with `upsert_profile` after they confirm.

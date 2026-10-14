@@ -10,7 +10,6 @@ database_name = "anon-match"
 database_id = "9d0fde1b-dafd-44c4-a307-ba2f77946b69"
 
 [vars]
-EMAIL_DOMAIN = "mail.grokbot.com"
 DEV_RETURN_CODE = "false"
 REVEAL_TIMEOUT_HOURS = "72"
 MAIL_FROM = "noreply@wingbot.app"

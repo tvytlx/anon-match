@@ -101,7 +101,7 @@ const ops = {
   async health() { return { ok: true, service: "anon-match-api", time: new Date().toISOString() }; },
   async requestCode(env, b, ip = "unknown") {
     const email = String(b.email || "").trim().toLowerCase();
-    if (!new RegExp(`^[a-z0-9._+-]+@${env.EMAIL_DOMAIN.replace(/\./g, "\\.")}$`).test(email)) fail(400, `only *@${env.EMAIL_DOMAIN} emails are accepted`);
+    if (email.length > 254 || !/^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(email) || email.includes("..")) fail(400, "invalid email address");
     const zh = "验证码发送太频繁，请稍后再试";
     await hit(env, [[`rc:e:${email}:m`, 60, 1, "email", "验证码发送太频繁，请 1 分钟后再试"], [`rc:e:${email}:h`, 3600, 5, "email"], [`rc:e:${email}:d`, 86400, 10, "email"],
       [`rc:ip:${ip}:m`, 60, 3, "ip"], [`rc:ip:${ip}:d`, 86400, 20, "ip"], ["rc:global:d", 86400, 500, "global", "系统繁忙，今日验证码额度已用完，请明天再试"]]);
@@ -119,7 +119,7 @@ const ops = {
     }
     if (env.DEV_RETURN_CODE === "true") console.log(`[activation] ${email} code=${code}`);
     if (!sent && env.DEV_RETURN_CODE !== "true") fail(502, "failed to send activation email, try again later");
-    const r = { sent, email, expires_in_sec: 900, note: "Activation code was emailed to your Grok Bot inbox (subject: Anon Match activation code)." };
+    const r = { sent, email, expires_in_sec: 900, note: "Activation code was emailed to your inbox (subject: Anon Match activation code)." };
     if (mail_error && env.DEV_RETURN_CODE === "true") r.mail_error = mail_error;
     if (env.DEV_RETURN_CODE === "true") r.activation_code = code;
     return r;
@@ -358,7 +358,7 @@ const adminOps = {
 // ---- thin MCP adapter (Streamable HTTP, JSON responses) ----
 const T = "string";
 const TOOLS = [
-  ["request_code", "Request an activation code for the user's *@mail.grokbot.com email (human verification only)", { email: T }, false, (e, s, a, ip) => ops.requestCode(e, a, ip)],
+  ["request_code", "Request an activation code to the user's own email address (human verification only; never shown to anyone)", { email: T }, false, (e, s, a, ip) => ops.requestCode(e, a, ip)],
   ["verify_code", "Verify code; returns session token. Pass it as `token` to every other tool (or Authorization: Bearer).", { email: T, code: T }, false, (e, s, a, ip) => ops.verify(e, a, ip)],
   ["upsert_profile", "Create/update anonymous text profile; all fields optional. preferences = natural-language match preferences", { display_name: T, age_range: T, gender: T, seeking: T, city: T, occupation: T, bio: T, likes: T, dislikes: T, preferences: T }, true, (e, s, a) => ops.upsertProfile(e, s, a)],
   ["get_my_profile", "Get my profile", {}, true, (e, s) => ops.me(e, s)],

@@ -22,7 +22,7 @@ You ⇄ Grok Bot (your agent)
 ## How it works
 
 1. **Start**: say "start" to your agent.
-2. **Human check**: a one-time code is sent to your Grok Bot email. It only proves you're a real person and is **never shown to anyone**.
+2. **Human check**: a one-time code is sent to your email. It only proves you're a real person and is **never shown to anyone**.
 3. **Anonymous profile**: nickname, gender, age range, city, occupation, bio, likes and dislikes. Share as much or as little as you want. Everything is optional and text-only.
 4. **Preferences**: describe in plain language who you'd like to meet.
 5. **Scheduled check-ins**: your agent sets up a routine (every 12 hours by default). It fetches new matches and messages, replies for you based on your profile, preferences and instructions, and only pings you when something important happens.

@@ -2,7 +2,7 @@
 
 Let your agent make friends for you, anonymously. Just say "start".
 
-- **onboarding**: human check via your Grok Bot email (verification only, never shown) → anonymous text profile → preferences in plain language → a scheduled check-in routine (every 12h by default)
+- **onboarding**: human check via your email (verification only, never shown) → anonymous text profile → preferences in plain language → a scheduled check-in routine (every 12h by default)
 - **heartbeat**: fetches new matches and unread messages on a schedule, replies based on your profile, preferences and guidance, and alerts you to important progress
 - **guidance**: read chat transcripts and give per-match instructions
 - **confirm**: confirm or decline after reading the chat. When both sides confirm, the match succeeds.
