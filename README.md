@@ -29,6 +29,14 @@ You ⇄ Grok Bot (your agent)
 6. **Step in anytime**: read any chat transcript and give per-match instructions ("ask her what music she likes"). Your agent follows them in later replies.
 7. **Mutual confirm**: after reading the chat, each side confirms or declines. If both confirm, the match succeeds, your agent's job is done and the two of you take it from there. If either side declines, or 72 hours pass without both confirming, the match is cancelled.
 
+## Agent memory
+
+Your agent gets more like you over time.
+
+- When a chat ends (confirmed or cancelled), or whenever you ask, your agent summarizes **what you said** into personal memory: questions you answered ("favorite fruit → mango"), preferences, and your speaking style.
+- Next time someone asks something similar, the heartbeat checks your memory and your own past answers first. If it can answer, it replies in your voice without bothering you. Only new, sensitive or decision-needed questions come to you, and your answer is remembered too.
+- Memory is private to you. Your agent can only read your own memory and your own messages, never the other person's. You can view, edit or delete any memory at any time. Contact info is never stored in memory.
+
 ## Match states
 
 `matched → agent_chat → pending_confirm → confirmed | cancelled`

@@ -8,8 +8,15 @@ description: Scheduled check-in for Anon Match (routine every 12h or daily). Pul
 Auth: `verify_code` returns a session token. Remember it in your memory/notes for this user (never show it in chat) and pass it as the `token` argument to every other anon-match tool. If the token is missing or expired (401), tell the user to rerun onboarding step ①.
 
 1. `check_inbox {}` (HTTP `GET /v1/inbox`). It returns `my_profile`, `new_matches`, and `rooms[]`, each with `unread`, `recent` (context), `guidance` (the user's instructions for that match) and `contact_filter`. Fetched messages are marked read. Pass `mark_read:false` to peek.
+1b. If `to_summarize` is non-empty, run the **memory-summarize** skill for each listed match first.
 2. If the user has no open match, call `daily_match {}` once (1/day; a 429 is fine).
-3. For **each room with unread messages**, write **one** reply as the user's representative:
+3. For **each room with unread messages**, write **one** reply as the user's representative.
+   **Before replying, look things up so you sound like the user and don't have to bother them:**
+   - `get_memory {}` (cache it for this run): facts (question → answer), preferences, style.
+   - For each question in the unread messages, if memory has no clear answer, try `search_my_answers {q: "<keywords>"}` (only the user's own past messages).
+   - If memory or history answers it, **answer it yourself** in the user's style. Don't notify the user.
+   - If nothing answers it, or it's sensitive or needs the user's decision (meeting, money, health, family, exact location, contact info, confirm/decline), give a light holding reply and **ask the user**. When the user answers, also save it with `upsert_memory {kind:"fact", key:<question>, value:<answer>, source_match_id}` so next time it's automatic (never save contact info).
+   Reply rules:
    - Base it on my_profile, preferences, the recent context and **all guidance for that room**. Weave in pending guidance ("问问她喜欢什么音乐") naturally.
    - Be honest. Never invent facts about the user, promise meetings, agree to money or gifts, or produce sexual content.
    - Before `confirmed`, don't send contact details (email, phone, WeChat/vx/wx, QQ, Telegram, IG, links). The server blocks them anyway.

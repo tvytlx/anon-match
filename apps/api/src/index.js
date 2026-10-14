@@ -2,7 +2,7 @@
 const now = () => Date.now();
 const day = () => new Date().toISOString().slice(0, 10);
 const uid = (p) => p + "_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type" } });
+const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type", "access-control-allow-methods": "GET,POST,DELETE,OPTIONS" } });
 class HttpErr extends Error { constructor(s, m) { super(m); this.status = s; } }
 const fail = (s, m) => { throw new HttpErr(s, m); };
 async function sha(s) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join(""); }
@@ -193,7 +193,13 @@ const ops = {
       for (const r of rooms) if (r.unread.length) await env.DB.prepare("UPDATE messages SET read_at=? WHERE match_id=? AND sender_id<>? AND read_at IS NULL").bind(now(), r.match_id, s.user_id).run();
       for (const v of new_matches) await env.DB.prepare("INSERT OR IGNORE INTO match_seen(match_id,user_id) VALUES(?,?)").bind(v.match_id, s.user_id).run();
     }
-    return { my_profile: me.profile, new_matches, rooms, total_unread: rooms.reduce((a, r) => a + r.unread.length, 0) };
+    const ended = (await env.DB.prepare(`SELECT m.id, m.state FROM matches m WHERE (m.user_a=?1 OR m.user_b=?1) AND (m.state IN ('confirmed','cancelled') OR m.reveal_deadline<?2)
+      AND EXISTS (SELECT 1 FROM messages x WHERE x.match_id=m.id AND x.sender_id=?1)
+      AND NOT EXISTS (SELECT 1 FROM memory_summaries ms WHERE ms.match_id=m.id AND ms.user_id=?1) LIMIT 10`).bind(s.user_id, now()).all()).results;
+    const to_summarize = [];
+    for (const e of ended) { const m = await loadMatch(env, e.id, s.user_id); if (m.state === "confirmed" || m.state === "cancelled") to_summarize.push({ match_id: m.id, state: m.state }); }
+    const mem_count = (await env.DB.prepare("SELECT COUNT(*) n FROM memories WHERE user_id=?").bind(s.user_id).first()).n;
+    return { my_profile: me.profile, memory_count: mem_count, to_summarize, new_matches, rooms, total_unread: rooms.reduce((a, r) => a + r.unread.length, 0) };
   },
   async markRead(env, s, id) {
     await loadMatch(env, id, s.user_id);
@@ -210,6 +216,46 @@ const ops = {
   async listGuidance(env, s, id) {
     await loadMatch(env, id, s.user_id);
     return { match_id: id, guidance: (await env.DB.prepare("SELECT id, body, created_at FROM guidance WHERE match_id=? AND user_id=? ORDER BY created_at DESC").bind(id, s.user_id).all()).results };
+  },
+  async listMemory(env, s, q) {
+    let sql = "SELECT id, kind, key, value, source_match_id, updated_at FROM memories WHERE user_id=?", a = [s.user_id];
+    if (q.kind) { sql += " AND kind=?"; a.push(q.kind); }
+    if (q.q) { sql += " AND (key LIKE ? OR value LIKE ?)"; a.push(`%${q.q}%`, `%${q.q}%`); }
+    return { memories: (await env.DB.prepare(sql + " ORDER BY kind, updated_at DESC LIMIT 500").bind(...a).all()).results };
+  },
+  async upsertMemory(env, s, b) {
+    const items = Array.isArray(b.items) ? b.items : [b];
+    if (items.length > 50) fail(400, "max 50 items per call");
+    const out = [];
+    for (const it of items) {
+      const kind = String(it.kind || ""), key = String(it.key || "").trim(), value = String(it.value || "").trim();
+      if (!["fact", "preference", "style"].includes(kind)) fail(400, "kind must be fact|preference|style");
+      if (!key || key.length > 200 || !value || value.length > 1000) fail(400, "key (≤200) and value (≤1000) required");
+      for (const [k, v] of [["key", key], ["value", value]]) { const h = contactHit(v); if (h) fail(400, `memory ${k} must not contain contact info (${h})`); if (BANNED.test(v)) fail(400, "disallowed content"); }
+      if (it.source_match_id) await loadMatch(env, it.source_match_id, s.user_id);
+      await env.DB.prepare("INSERT INTO memories(id,user_id,kind,key,value,source_match_id,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,kind,key) DO UPDATE SET value=excluded.value, source_match_id=COALESCE(excluded.source_match_id, memories.source_match_id), updated_at=excluded.updated_at")
+        .bind(uid("mem"), s.user_id, kind, key, value, it.source_match_id || null, now()).run();
+      out.push(await env.DB.prepare("SELECT id, kind, key, value, source_match_id, updated_at FROM memories WHERE user_id=? AND kind=? AND key=?").bind(s.user_id, kind, key).first());
+    }
+    return { memories: out };
+  },
+  async deleteMemory(env, s, id) {
+    const r = await env.DB.prepare("DELETE FROM memories WHERE id=? AND user_id=?").bind(id, s.user_id).run();
+    if (!r.meta.changes) fail(404, "memory not found");
+    return { deleted: id };
+  },
+  async historyAnswers(env, s, q) {
+    // only the caller's own sent messages
+    const terms = String(q.q || "").trim().split(/\s+/).filter(Boolean).slice(0, 5);
+    let sql = "SELECT id, match_id, body, created_at FROM messages WHERE sender_id=?", a = [s.user_id];
+    if (q.match_id) { await loadMatch(env, q.match_id, s.user_id); sql += " AND match_id=?"; a.push(q.match_id); }
+    if (terms.length) { sql += " AND (" + terms.map(() => "body LIKE ?").join(" OR ") + ")"; a.push(...terms.map(t => `%${t}%`)); }
+    return { answers: (await env.DB.prepare(sql + " ORDER BY created_at DESC LIMIT 50").bind(...a).all()).results };
+  },
+  async markSummarized(env, s, id) {
+    const m = await loadMatch(env, id, s.user_id);
+    await env.DB.prepare("INSERT OR IGNORE INTO memory_summaries(match_id,user_id,created_at) VALUES(?,?,?)").bind(id, s.user_id, now()).run();
+    return { match_id: id, state: m.state, summarized: true };
   },
   async getMessages(env, s, id) {
     await loadMatch(env, id, s.user_id);
@@ -251,6 +297,11 @@ const TOOLS = [
   ["mark_read", "Mark a room's messages read", { match_id: T }, true, (e, s, a) => ops.markRead(e, s, a.match_id)],
   ["add_guidance", "Save the user's instruction for this match (used by heartbeat replies)", { match_id: T, body: T }, true, (e, s, a) => ops.addGuidance(e, s, a.match_id, a)],
   ["list_guidance", "List my guidance for a match", { match_id: T }, true, (e, s, a) => ops.listGuidance(e, s, a.match_id)],
+  ["get_memory", "List my personal memory (facts/preferences/style). Optional kind filter and keyword q", { kind: T, q: T }, true, (e, s, a) => ops.listMemory(e, s, a)],
+  ["upsert_memory", "Save memories. Either one {kind,key,value,source_match_id?} or items:[...]. kind=fact|preference|style; key=question/topic. No contact info", { kind: T, key: T, value: T, source_match_id: T, items: "array" }, true, (e, s, a) => ops.upsertMemory(e, s, a)],
+  ["delete_memory", "Delete one of my memories by id", { id: T }, true, (e, s, a) => ops.deleteMemory(e, s, a.id)],
+  ["search_my_answers", "Keyword search over messages I (the user's side) sent in past chats; optional match_id. Never returns the partner's messages", { q: T, match_id: T }, true, (e, s, a) => ops.historyAnswers(e, s, a)],
+  ["mark_summarized", "Mark an ended match as summarized into memory", { match_id: T }, true, (e, s, a) => ops.markSummarized(e, s, a.match_id)],
   ["confirm_match", "Vote confirm|reject. Both confirm → confirmed (contact filter lifted). Any reject/72h timeout → cancelled", { match_id: T, decision: T }, true, (e, s, a) => ops.confirm(e, s, a.match_id, a)],
 ];
 async function mcp(req, env) {
@@ -260,7 +311,7 @@ async function mcp(req, env) {
   if (m.id === undefined) return new Response(null, { status: 202 });
   if (m.method === "initialize") return reply({ protocolVersion: m.params?.protocolVersion || "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "anon-match", version: "0.2.0" } });
   if (m.method === "ping") return reply({});
-  if (m.method === "tools/list") return reply({ tools: TOOLS.map(([name, description, props]) => ({ name, description, inputSchema: { type: "object", properties: Object.fromEntries([...Object.entries(props), ...(TOOLS.find(x => x[0] === name)[3] ? [["token", T]] : [])].map(([k, t]) => [k, { type: t }])) } })) });
+  if (m.method === "tools/list") return reply({ tools: TOOLS.map(([name, description, props]) => ({ name, description, inputSchema: { type: "object", properties: Object.fromEntries([...Object.entries(props), ...(TOOLS.find(x => x[0] === name)[3] ? [["token", T]] : [])].map(([k, t]) => [k, t === "array" ? { type: "array", items: { type: "object" } } : { type: t }])) } })) });
   if (m.method === "tools/call") {
     const t = TOOLS.find(x => x[0] === m.params?.name);
     if (!t) return json({ jsonrpc: "2.0", id: m.id, error: { code: -32602, message: "unknown tool" } });
@@ -291,7 +342,13 @@ export default {
       if (M === "POST" && p === "/v1/match/daily") return json(await ops.daily(env, s, await body()));
       if (M === "GET" && p === "/v1/inbox") return json(await ops.inbox(env, s, { mark_read: url.searchParams.get("mark_read") !== "0" }));
       if (M === "GET" && p === "/v1/matches") return url.searchParams.get("unread") === "1" ? json(await ops.inbox(env, s, { mark_read: false })) : json(await ops.listMatches(env, s));
-      const mm = p.match(/^\/v1\/matches\/([\w-]+)\/(messages|reveal|confirm|guidance|read)$/);
+      if (p === "/v1/memory" && M === "GET") return json(await ops.listMemory(env, s, Object.fromEntries(url.searchParams)));
+      if (p === "/v1/memory" && M === "POST") return json(await ops.upsertMemory(env, s, await body()));
+      const md = p.match(/^\/v1\/memory\/([\w-]+)$/);
+      if (md && M === "DELETE") return json(await ops.deleteMemory(env, s, md[1]));
+      if (p === "/v1/history/answers" && M === "GET") return json(await ops.historyAnswers(env, s, Object.fromEntries(url.searchParams)));
+      const mm = p.match(/^\/v1\/matches\/([\w-]+)\/(messages|reveal|confirm|guidance|read|summarized)$/);
+      if (mm && mm[2] === "summarized" && M === "POST") return json(await ops.markSummarized(env, s, mm[1]));
       if (mm && mm[2] === "guidance") return json(M === "POST" ? await ops.addGuidance(env, s, mm[1], await body()) : await ops.listGuidance(env, s, mm[1]));
       if (mm && mm[2] === "read" && M === "POST") return json(await ops.markRead(env, s, mm[1]));
       if (mm && mm[2] === "messages" && M === "POST") return json(await ops.postMessage(env, s, mm[1], await body()));
