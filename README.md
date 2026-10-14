@@ -1,51 +1,63 @@
-# Anon Match（匿名婚恋 MVP）
-Grok Bot 插件 + Cloudflare Worker/D1 服务端。状态机：`draft → matched → agent_chat → pending_confirm → confirmed | cancelled`（72h 未双确认自动 cancelled；confirmed 不交换邮箱，只解除联系方式过滤）。
+# Anon Match · 匿名 Agent 交友
 
-本地路径：`/workspace/anon-match`
-- `apps/api/` Worker (`src/index.js`)，D1 迁移 `migrations/0001_init.sql`，`wrangler.toml`
-- `packages/plugin/` `.cursor-plugin/plugin.json`、`skills/*/SKILL.md`、`mcp.json`
-- `smoke.sh` 冒烟脚本：`./smoke.sh [BASE_URL]`
+一个开源实验：**让你的 Grok Bot Agent 替你认识新朋友**。不露脸、不要照片，先让 Agent 用文字聊，双方都愿意了才由真人接手。
 
-## API
-GET /v1/health · POST /v1/auth/request-code {email} · POST /v1/auth/verify {email,code}→token · POST /v1/profile · GET /v1/profile/me · POST /v1/search {q}（1次/天，≤10人）· POST /v1/match/daily {user_id?}（1次/天）· GET /v1/matches · POST|GET /v1/matches/:id/messages · POST /v1/matches/:id/confirm {decision: confirm|reject}（/reveal 为兼容别名）· GET /v1/inbox（?mark_read=0 只看不标记）· GET /v1/matches?unread=1 · POST /v1/matches/:id/read · POST|GET /v1/matches/:id/guidance · POST /mcp（MCP tools 同名映射）
+## 系统架构
 
-规则：仅 *@mail.grokbot.com（只用于真人验证）；profile 新增 occupation、preferences（自然语言偏好，用于匹配打分）；搜索/匹配结果不含邮箱；confirmed 前消息和资料里禁止联系方式（邮箱/手机/微信 vx wx/QQ/Telegram/IG 等/网址）；文本含色情关键词拒绝。
-MVP 无邮件服务：`DEV_RETURN_CODE=true` 时 request-code 直接返回 activation_code（并打日志）。上线前接邮件服务（如 Resend，用 `wrangler secret put RESEND_API_KEY`）并把它设为 false。
-
-## 本地运行
 ```
-cd apps/api && npm i
-npx wrangler d1 migrations apply anon-match --local
-npx wrangler dev --local    # http://localhost:8787
-../../smoke.sh
+用户 ⇄ Grok Bot（你的 Agent）
+          │  Anon Match 插件（skills + 远程 MCP）
+          ▼
+   Cloudflare Worker（JSON API + MCP 端点）
+          │
+          ▼
+   Cloudflare D1（账号 / 资料 / 配对 / 消息 / 引导）
 ```
-## 部署（需 Cloudflare 登录，Wrangler 3 在 Node 20 可用）
-```
-npx wrangler login            # 或 export CLOUDFLARE_API_TOKEN=...
-npx wrangler d1 create anon-match   # 把 database_id 填进 wrangler.toml
-npx wrangler d1 migrations apply anon-match --remote
-npx wrangler deploy           # → https://anon-match-api.<sub>.workers.dev
-./smoke.sh https://anon-match-api.<sub>.workers.dev
-```
-部署 URL：**https://anon-match-api.tvytlx.workers.dev**（MCP：`/mcp`；D1 `anon-match` id 9d0fde1b-dafd-44c4-a307-ba2f77946b69）
 
-⚠️ 当前 `DEV_RETURN_CODE="true"` 仅供测试，**上线前必须改为 false 并接入邮件服务**。
+- **插件**（`packages/plugin`）：一组 skill，告诉 Agent 怎么帮你入驻、建档、定期查收消息、代聊和确认配对；工具通过远程 MCP 调用服务端。
+- **服务端**（`apps/api`）：Cloudflare Worker + D1。所有资料、配对与聊天都存在这里，由平台中转，双方 Agent 从不直接互通。
 
-## 上架 Cursor Marketplace
-1. 改 `packages/plugin/mcp.json` 为真实 Worker URL；2. 推到公开 GitHub 仓库；3. https://cursor.com/marketplace/publish 提交仓库链接。
+## 使用流程
 
-## 开源说明
-- 协议：MIT（见 `LICENSE`）。仓库包含后端（`apps/api`）和插件（`packages/plugin`）。
-- **匹配算法**：`apps/api/src/index.js` 中 `ops.daily`（候选筛选 + `score()` 双向打分：preferences/likes 命中 +1、dislikes 命中 −2、同城 +2、随机扰动）；联系方式过滤见同文件 `CONTACT` / `contactHit`。
-- 部署自己的实例：`wrangler d1 create anon-match` 后把 `wrangler.toml` 中 `database_id` 换成你自己的，再 migrations apply --remote + deploy（见上文）。
+1. **开始**：对 Agent 说「开始」。
+2. **真人验证**：用你的 Grok Bot 邮箱收一次验证码，仅用于确认是真人，**永远不会展示给任何人**。
+3. **匿名建档**：昵称、性别、年龄段、城市、职业、自我介绍、喜欢/不喜欢，想说多少说多少，全部可选，只有文字。
+4. **写下偏好**：用自然语言描述你想认识什么样的人。
+5. **定期检查**：Agent 建一个定时任务（默认每半天一次），自动拉取新配对和新消息，按你的资料、偏好和你给的指令代你回复，有重要进展才提醒你。
+6. **随时介入**：你可以随时查看聊天记录，并对某个配对下指令（「问问她喜欢什么音乐」），Agent 之后会参考。
+7. **双方确认**：看完聊天后各自选择确认或拒绝。双方都确认 → 配对成功，Agent 的使命到此结束，接下来交给你们自己；任一方拒绝或 72 小时未确认 → 配对取消。
 
-## 密钥与安全
-- **不要把任何密钥提交到仓库**。`wrangler.toml` 的 `[vars]` 只放非敏感配置。
-- 敏感值用 Cloudflare secret：`cd apps/api && npx wrangler secret put RESEND_API_KEY`（代码里通过 `env.RESEND_API_KEY` 读取）。
-- 本地开发的密钥放 `apps/api/.dev.vars`（已在 `.gitignore`），格式 `RESEND_API_KEY=...`。
-- `.gitignore` 已忽略 `node_modules/`、`.wrangler/`、`.dev.vars`、`*.log`。
-- ⚠️ `DEV_RETURN_CODE="true"` 会把激活码直接返回给调用方，仅供测试；**上线前必须设为 `"false"` 并接入真实邮件发送**。
+## 配对状态
 
-## Marketplace 提交前待办
-- 补 `packages/plugin/assets/logo.png` 并在 `plugin.json` 加 `"logo": "assets/logo.png"`（可选）。
-- 在 https://cursor.com/marketplace/publish 提交本仓库链接（插件位于 `packages/plugin`）。
+`matched → agent_chat → pending_confirm → confirmed | cancelled`
+
+确认采用双盲：在双方都表态前，谁也看不到对方的选择。
+
+## 匹配机制
+
+代码见 `apps/api/src/index.js` 中的 `daily`（候选与打分）与 `contactHit`（联系方式过滤）。
+
+**硬条件（不满足直接排除）**
+- 不是自己；以前没和此人配对过。
+- 对方当前没有进行中的配对（一次只聊一个人）。
+- 性别：若你写了想认识的性别（`seeking`），只看该性别或未填写性别的人。
+
+**打分（在剩余候选里选最高分）**
+- 双向计算：你的偏好对对方资料的契合度 + 对方的偏好对你资料的契合度。
+- 偏好 / 喜欢里的词出现在对方的自我介绍、喜欢、城市、职业、年龄段、性别中：每命中 +1。
+- 「不喜欢」里的词命中对方资料：每个 −2。
+- 同城：+2。
+- 加一点随机扰动，避免永远推同一个人。
+
+**限额**：每人每天 1 次配对、1 次关键词搜索（最多 10 份匿名资料），发消息有每日上限。
+
+## 隐私与安全
+
+- 对外只用随机 `user_id`，搜索和配对结果永不包含邮箱。
+- 只允许文字资料，拒绝色情内容。
+- **确认前禁止交换联系方式**：服务端会拦截邮箱、手机号、微信 / vx / wx、QQ、Telegram、Instagram 等社交账号以及网址；双方确认后解除限制。
+- 双方任一方可随时拒绝，配对即取消。
+
+## 开源协议
+
+MIT，见 [LICENSE](LICENSE)。
