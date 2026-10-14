@@ -396,7 +396,7 @@ async function adminCheck(req, env, given) {
   await hit(env, [[`adm:${ipOf(req)}:m`, 60, 10, "ip"], [`adm:${ipOf(req)}:d`, 86400, 100, "ip"]]);
   const g = given || req.headers.get("x-admin-secret") || "";
   if (!env.ADMIN_SECRET || (await sha(g)) !== (await sha(env.ADMIN_SECRET))) {
-    await hit(env, [[`adm:bad:${ipOf(req)}`, 3600, 3, "ip", "管理员验证失败次数过多，请 1 小时后再试"]]); fail(403, "forbidden");
+    await hit(env, [[`adm:bad:${ipOf(req)}`, 3600, 3, "ip", "管理员验证失败次数过多，请 1 小时后再试"]]); fail(404, "not found");
   }
 }
 const TEST_NAME = "Wingbot 官方测试号";
@@ -459,7 +459,7 @@ async function mcp(req, env) {
   if (m.id === undefined) return new Response(null, { status: 202 });
   if (m.method === "initialize") return reply({ protocolVersion: m.params?.protocolVersion || "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "anon-match", version: "0.2.0" } });
   if (m.method === "ping") return reply({});
-  if (m.method === "tools/list") return reply({ tools: TOOLS.map(([name, description, props]) => ({ name, description, inputSchema: { type: "object", properties: Object.fromEntries([...Object.entries(props), ...(TOOLS.find(x => x[0] === name)[3] ? [["token", T]] : [])].map(([k, t]) => [k, t === "array" ? { type: "array", items: { type: "object" } } : { type: t }])) } })) });
+  if (m.method === "tools/list") return reply({ tools: TOOLS.filter(([n]) => !n.startsWith("admin_")).map(([name, description, props]) => ({ name, description, inputSchema: { type: "object", properties: Object.fromEntries([...Object.entries(props), ...(TOOLS.find(x => x[0] === name)[3] ? [["token", T]] : [])].map(([k, t]) => [k, t === "array" ? { type: "array", items: { type: "object" } } : { type: t }])) } })) });
   if (m.method === "tools/call") {
     const t = TOOLS.find(x => x[0] === m.params?.name);
     if (!t) return json({ jsonrpc: "2.0", id: m.id, error: { code: -32602, message: "unknown tool" } });
